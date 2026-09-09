@@ -80,6 +80,14 @@ function parseDateValue(value) {
   return new Date(value);
 }
 
+function getLastReview(caseRecord) {
+  const history = caseRecord.reviewHistory || [];
+  if (history.length === 0) return null;
+  return history
+    .filter((entry) => entry.reviewedAt)
+    .sort((a, b) => parseDateValue(b.reviewedAt) - parseDateValue(a.reviewedAt))[0];
+}
+
 export default function CasesTable() {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -231,7 +239,8 @@ export default function CasesTable() {
               <TableCell>Priority</TableCell>
               <TableCell>Source</TableCell>
               <TableCell>Notes</TableCell>
-              <TableCell>Date</TableCell>
+              <TableCell>Report Date</TableCell>
+              <TableCell>Last Reviewed</TableCell>
               <TableCell align="right">Lat</TableCell>
               <TableCell align="right">Lng</TableCell>
               <TableCell align="right">Review</TableCell>
@@ -240,7 +249,7 @@ export default function CasesTable() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} align="center">
+                <TableCell colSpan={13} align="center">
                   No cases found.
                 </TableCell>
               </TableRow>
@@ -248,6 +257,7 @@ export default function CasesTable() {
               filtered.map((c, i) => {
                 const priority = getPriority(c);
                 const status = c.status || "New";
+                const lastReview = getLastReview(c);
                 return (
                   <TableRow
                     key={c._id || i}
@@ -288,6 +298,22 @@ export default function CasesTable() {
                       </Typography>
                     </TableCell>
                     <TableCell>{formatDate(c.date)}</TableCell>
+                    <TableCell>
+                      {lastReview ? (
+                        <Box>
+                          <Typography variant="body2" fontWeight={700}>
+                            {formatDateTime(lastReview.reviewedAt)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {lastReview.changedFields?.length ? lastReview.changedFields.join(", ") : "Reviewed"}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          Not reviewed
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell align="right">{Number(c.lat).toFixed(4)}</TableCell>
                     <TableCell align="right">{Number(c.lng).toFixed(4)}</TableCell>
                     <TableCell align="right">
@@ -326,7 +352,7 @@ export default function CasesTable() {
                   {selectedCase.disease}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {selectedCase.location} · {selectedCase.cases} reported cases · {formatDate(selectedCase.date)}
+                  {selectedCase.location} · {selectedCase.cases} reported cases · Reported {formatDate(selectedCase.date)}
                 </Typography>
               </Box>
               {saveMessage && (
