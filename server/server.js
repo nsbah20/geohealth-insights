@@ -49,7 +49,7 @@ mongoose
 const caseSchema = new mongoose.Schema(
   {
     disease: { type: String, required: true, trim: true },
-    location: { type: String, default: "Auto-Captured", trim: true },
+    location: { type: String, required: true, trim: true },
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
     cases: { type: Number, default: 1, min: 1 },
@@ -78,7 +78,7 @@ app.post(
   "/api/cases",
   [
     body("disease").notEmpty().withMessage("Disease is required").trim().escape(),
-    body("location").optional().trim().escape(),
+    body("location").notEmpty().withMessage("Location is required").trim().escape(),
     body("latitude").isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude"),
     body("longitude").isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
     body("cases").optional().isInt({ min: 1, max: 100000 }).withMessage("Cases must be a positive number"),
@@ -101,7 +101,7 @@ app.post(
         disease,
         lat: Number(latitude),
         lng: Number(longitude),
-        location: location || "Auto-Captured",
+        location,
         cases: Number(cases) || 1,
         date,
       });

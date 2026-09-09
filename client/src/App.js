@@ -398,7 +398,7 @@ function MapView() {
       if (validCoordinates.length === 0) return;
 
       if (validCoordinates.length === 1) {
-        mapRef.current.flyTo({ center: validCoordinates[0], zoom: 7, duration });
+        mapRef.current.flyTo({ center: validCoordinates[0], zoom: 9, duration });
         return;
       }
 
@@ -553,6 +553,12 @@ function MapView() {
     if (map.isStyleLoaded()) fitMapToCases();
     else map.once("load", fitMapToCases);
   }, [filteredData, fitMapToCases, mapReady]);
+
+  useEffect(() => {
+    if (filteredData.length === 1) {
+      setShowHeatmap(false);
+    }
+  }, [filteredData.length]);
 
   return (
     <Box

@@ -133,6 +133,7 @@ export default function AddCaseForm({ onCaseAdded }) {
         required
         fullWidth
         placeholder="City, state or facility name"
+        helperText="Use a clear place name, for example Madison, WI or Banjul, The Gambia"
       />
       <TextField
         label="Case Count"
