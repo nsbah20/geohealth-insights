@@ -18,6 +18,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   TextField,
   InputAdornment,
   MenuItem,
@@ -57,6 +58,17 @@ function getPriority(item) {
 function formatDate(value) {
   if (!value) return "Unknown";
   return parseDateValue(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatDateTime(value) {
+  if (!value) return "Unknown";
+  return parseDateValue(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function parseDateValue(value) {
@@ -176,7 +188,7 @@ export default function CasesTable() {
         </Box>
 
         <TextField
-          placeholder="Search by disease or location..."
+          placeholder="Search by disease, location, status, source..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           size="small"
@@ -375,6 +387,53 @@ export default function CasesTable() {
                 inputProps={{ maxLength: 1000 }}
                 placeholder="Add verification notes, follow-up action, or response context"
               />
+              <Divider />
+              <Box>
+                <Typography variant="subtitle2" fontWeight={900} color="#102a2c" sx={{ mb: 1 }}>
+                  Review History
+                </Typography>
+                {selectedCase.reviewHistory?.length ? (
+                  <Stack spacing={1.2}>
+                    {[...selectedCase.reviewHistory].reverse().map((entry, index) => (
+                      <Box
+                        key={entry._id || `${entry.reviewedAt}-${index}`}
+                        sx={{
+                          border: "1px solid rgba(15, 23, 42, 0.08)",
+                          borderRadius: 2,
+                          p: 1.5,
+                          bgcolor: "#f8fbfa",
+                        }}
+                      >
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                          <Typography variant="body2" fontWeight={900} color="#102a2c">
+                            {entry.status || "Review update"}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatDateTime(entry.reviewedAt)}
+                          </Typography>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Priority: {entry.priority || "Unknown"} · Source: {entry.reportSource || "Field report"}
+                        </Typography>
+                        {entry.changedFields?.length > 0 && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Changed: {entry.changedFields.join(", ")}
+                          </Typography>
+                        )}
+                        {entry.notes && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                            {entry.notes}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No review history has been recorded yet. The first saved review will appear here.
+                  </Typography>
+                )}
+              </Box>
             </Stack>
           )}
         </DialogContent>

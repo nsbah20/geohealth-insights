@@ -68,6 +68,17 @@ const caseSchema = new mongoose.Schema(
     },
     reportSource: { type: String, default: "Field report", trim: true },
     notes: { type: String, default: "", trim: true, maxlength: 1000 },
+    reviewHistory: [
+      {
+        reviewedAt: { type: Date, default: Date.now },
+        reviewer: { type: String, default: "System reviewer", trim: true },
+        status: { type: String, enum: CASE_STATUSES },
+        priority: { type: String, enum: CASE_PRIORITIES },
+        reportSource: { type: String, trim: true },
+        notes: { type: String, default: "", trim: true, maxlength: 1000 },
+        changedFields: [{ type: String, trim: true }],
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -157,24 +168,38 @@ app.patch(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const allowedUpdates = ["status", "priority", "reportSource", "notes"];
-    const updates = allowedUpdates.reduce((acc, field) => {
-      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
-        acc[field] = req.body[field];
-      }
-      return acc;
-    }, {});
+    const reviewFields = ["status", "priority", "reportSource", "notes"];
 
     try {
-      const updatedCase = await Case.findByIdAndUpdate(req.params.id, updates, {
-        new: true,
-        runValidators: true,
-      });
+      const caseRecord = await Case.findById(req.params.id);
 
-      if (!updatedCase) {
+      if (!caseRecord) {
         return res.status(404).json({ error: "Case not found" });
       }
 
+      const changedFields = reviewFields.filter((field) => {
+        if (!Object.prototype.hasOwnProperty.call(req.body, field)) return false;
+        return String(caseRecord[field] ?? "") !== String(req.body[field] ?? "");
+      });
+
+      reviewFields.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+          caseRecord[field] = req.body[field];
+        }
+      });
+
+      if (changedFields.length > 0) {
+        caseRecord.reviewHistory.push({
+          reviewer: "System reviewer",
+          status: caseRecord.status,
+          priority: caseRecord.priority,
+          reportSource: caseRecord.reportSource,
+          notes: caseRecord.notes,
+          changedFields,
+        });
+      }
+
+      const updatedCase = await caseRecord.save();
       res.json(updatedCase);
     } catch (err) {
       console.error(err);
