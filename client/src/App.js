@@ -42,6 +42,7 @@ mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const DRAWER_WIDTH = 360;
+const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
 
 function getSeverity(count) {
@@ -289,7 +290,7 @@ function TrendChart({ rows }) {
 
 function MapView() {
   const [liveData, setLiveData] = useState([]);
-  const [showDemoData, setShowDemoData] = useState(true);
+  const [showDemoData, setShowDemoData] = useState(SHOW_DEMO_BY_DEFAULT);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [loadingData, setLoadingData] = useState(true);
   const [apiError, setApiError] = useState(null);
@@ -621,6 +622,11 @@ function MapView() {
         <Typography variant="caption" color="text.secondary">
           Live records: {liveData.length} · Demo records: {showDemoData ? demoData.length : 0}
         </Typography>
+        {!showDemoData && liveData.length > 0 && (
+          <Alert severity="success" sx={{ mt: 1.5, fontSize: "0.8rem", borderRadius: 2 }}>
+            Live database records are active.
+          </Alert>
+        )}
 
         <Divider sx={{ my: 2.5 }} />
 
