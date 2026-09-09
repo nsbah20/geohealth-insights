@@ -6,14 +6,19 @@ import {
   Button,
   Alert,
   CircularProgress,
+  MenuItem,
+  Stack,
 } from "@mui/material";
 import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
 
 export default function AddCaseForm({ onCaseAdded }) {
   const [form, setForm] = useState({
     disease: "",
+    location: "",
+    cases: 1,
     latitude: "",
     longitude: "",
     date: "",
@@ -67,10 +72,11 @@ export default function AddCaseForm({ onCaseAdded }) {
         ...form,
         latitude: lat,
         longitude: lng,
+        cases: Number(form.cases),
       });
 
       setStatus({ type: "success", message: "Case reported successfully!" });
-      setForm((prev) => ({ ...prev, disease: "", date: "" }));
+      setForm((prev) => ({ ...prev, disease: "", location: "", cases: 1, date: "" }));
       if (onCaseAdded) onCaseAdded();
     } catch (err) {
       const msg =
@@ -84,7 +90,20 @@ export default function AddCaseForm({ onCaseAdded }) {
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 1.5, mt: 1 }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 1.5,
+        mt: 1,
+        "& .MuiOutlinedInput-root": {
+          borderRadius: 2,
+          bgcolor: "white",
+        },
+      }}
+    >
       {status && (
         <Alert severity={status.type} onClose={() => setStatus(null)} sx={{ fontSize: "0.8rem" }}>
           {status.message}
@@ -92,6 +111,7 @@ export default function AddCaseForm({ onCaseAdded }) {
       )}
 
       <TextField
+        select
         label="Disease"
         name="disease"
         value={form.disease}
@@ -99,26 +119,52 @@ export default function AddCaseForm({ onCaseAdded }) {
         size="small"
         required
         fullWidth
-      />
+      >
+        {DISEASE_OPTIONS.map((disease) => (
+          <MenuItem key={disease} value={disease}>{disease}</MenuItem>
+        ))}
+      </TextField>
       <TextField
-        label="Latitude"
-        name="latitude"
-        value={form.latitude}
+        label="Location"
+        name="location"
+        value={form.location}
         onChange={handleChange}
         size="small"
         required
         fullWidth
-        helperText="Auto-detected or enter manually"
+        placeholder="City, state or facility name"
       />
       <TextField
-        label="Longitude"
-        name="longitude"
-        value={form.longitude}
+        label="Case Count"
+        name="cases"
+        type="number"
+        value={form.cases}
         onChange={handleChange}
         size="small"
         required
         fullWidth
+        inputProps={{ min: 1 }}
       />
+      <Stack direction="row" spacing={1.2}>
+        <TextField
+          label="Latitude"
+          name="latitude"
+          value={form.latitude}
+          onChange={handleChange}
+          size="small"
+          required
+          fullWidth
+        />
+        <TextField
+          label="Longitude"
+          name="longitude"
+          value={form.longitude}
+          onChange={handleChange}
+          size="small"
+          required
+          fullWidth
+        />
+      </Stack>
       <TextField
         label="Date"
         name="date"
@@ -138,6 +184,14 @@ export default function AddCaseForm({ onCaseAdded }) {
         disabled={loading}
         startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <AddLocationAltIcon />}
         fullWidth
+        sx={{
+          py: 1.2,
+          borderRadius: 2,
+          fontWeight: 900,
+          boxShadow: "0 12px 24px rgba(15, 118, 110, 0.24)",
+          bgcolor: "#0f766e",
+          "&:hover": { bgcolor: "#115e59" },
+        }}
       >
         {loading ? "Submitting…" : "Report Case"}
       </Button>

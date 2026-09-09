@@ -9,12 +9,19 @@ const mongoose = require("mongoose");
 const app = express();
 const PORT = process.env.PORT || 5000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:3000";
+const allowedOrigins = CLIENT_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
+mongoose.set("bufferCommands", false);
 
 // ── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet());
 app.use(
   cors({
-    origin: CLIENT_ORIGIN,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
   })
@@ -32,11 +39,10 @@ app.use("/api", limiter);
 
 // ── MongoDB connection ───────────────────────────────────────────────────────
 mongoose
-  .connect(process.env.MONGODB_URI)
+  .connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 20000 })
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);
-    process.exit(1);
   });
 
 // ── Case schema & model ──────────────────────────────────────────────────────
@@ -55,6 +61,10 @@ const Case = mongoose.model("Case", caseSchema);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.get("/api/health-data", async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
   try {
     const cases = await Case.find().sort({ createdAt: -1 });
     res.json(cases);
@@ -68,17 +78,23 @@ app.post(
   "/api/cases",
   [
     body("disease").notEmpty().withMessage("Disease is required").trim().escape(),
+    body("location").optional().trim().escape(),
     body("latitude").isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude"),
     body("longitude").isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
+    body("cases").optional().isInt({ min: 1, max: 100000 }).withMessage("Cases must be a positive number"),
     body("date").notEmpty().withMessage("Date is required"),
   ],
   async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { disease, latitude, longitude, location, date } = req.body;
+    const { disease, latitude, longitude, location, cases, date } = req.body;
 
     try {
       const newCase = await Case.create({
@@ -86,7 +102,7 @@ app.post(
         lat: Number(latitude),
         lng: Number(longitude),
         location: location || "Auto-Captured",
-        cases: 1,
+        cases: Number(cases) || 1,
         date,
       });
       res.status(201).json(newCase);

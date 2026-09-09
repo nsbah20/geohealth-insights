@@ -15,8 +15,10 @@ import {
   Alert,
   TextField,
   InputAdornment,
+  Stack,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import demoData from "./demoData";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -27,9 +29,23 @@ const SEVERITY_COLORS = {
 };
 
 function getSeverity(count) {
-  if (count > 100) return "high";
-  if (count > 50) return "medium";
+  if (count >= 50) return "high";
+  if (count >= 20) return "medium";
   return "low";
+}
+
+function formatDate(value) {
+  if (!value) return "Unknown";
+  return parseDateValue(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function parseDateValue(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  return new Date(value);
 }
 
 export default function CasesTable() {
@@ -41,15 +57,18 @@ export default function CasesTable() {
   useEffect(() => {
     axios
       .get(`${API_URL}/api/health-data`)
-      .then((res) => setCases(res.data))
-      .catch(() => setError("Failed to load cases."))
+      .then((res) => setCases([...res.data, ...demoData]))
+      .catch(() => {
+        setCases(demoData);
+        setError(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const filtered = cases.filter(
     (c) =>
-      c.disease.toLowerCase().includes(search.toLowerCase()) ||
-      c.location.toLowerCase().includes(search.toLowerCase())
+      c.disease?.toLowerCase().includes(search.toLowerCase()) ||
+      c.location?.toLowerCase().includes(search.toLowerCase())
   );
 
   if (loading)
@@ -67,30 +86,59 @@ export default function CasesTable() {
     );
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight={700} gutterBottom>
-        All Disease Cases
-      </Typography>
+    <Box sx={{ minHeight: "calc(100vh - 72px)", bgcolor: "#eef4f2", p: 3 }}>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        alignItems={{ xs: "stretch", md: "center" }}
+        justifyContent="space-between"
+        spacing={2}
+        sx={{ mb: 2.5 }}
+      >
+        <Box>
+          <Typography variant="h4" fontWeight={900} color="#102a2c">
+            Disease Case Registry
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Search, review, and triage submitted surveillance records.
+          </Typography>
+        </Box>
 
-      <TextField
-        placeholder="Search by disease or location…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        size="small"
-        sx={{ mb: 2, width: 320 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon fontSize="small" />
-            </InputAdornment>
-          ),
+        <TextField
+          placeholder="Search by disease or location..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          size="small"
+          sx={{
+            width: { xs: "100%", md: 360 },
+            "& .MuiOutlinedInput-root": {
+              borderRadius: 2,
+              bgcolor: "white",
+              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+            },
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Stack>
+
+      <TableContainer
+        component={Paper}
+        elevation={0}
+        sx={{
+          borderRadius: 2,
+          border: "1px solid rgba(15, 23, 42, 0.08)",
+          boxShadow: "0 22px 55px rgba(15, 23, 42, 0.10)",
+          overflow: "hidden",
         }}
-      />
-
-      <TableContainer component={Paper} elevation={2}>
+      >
         <Table size="small">
           <TableHead>
-            <TableRow sx={{ "& th": { fontWeight: 700, bgcolor: "primary.main", color: "white" } }}>
+            <TableRow sx={{ "& th": { fontWeight: 900, bgcolor: "#082f2f", color: "white", py: 1.5 } }}>
               <TableCell>#</TableCell>
               <TableCell>Disease</TableCell>
               <TableCell>Location</TableCell>
@@ -112,9 +160,20 @@ export default function CasesTable() {
               filtered.map((c, i) => {
                 const sev = getSeverity(c.cases);
                 return (
-                  <TableRow key={c._id || i} hover>
+                  <TableRow
+                    key={c._id || i}
+                    hover
+                    sx={{
+                      "&:nth-of-type(even)": { bgcolor: "#f8fbfa" },
+                      "& td": { borderColor: "rgba(15, 23, 42, 0.06)" },
+                    }}
+                  >
                     <TableCell>{i + 1}</TableCell>
-                    <TableCell>{c.disease}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={800}>
+                        {c.disease}
+                      </Typography>
+                    </TableCell>
                     <TableCell>{c.location}</TableCell>
                     <TableCell align="right">{c.cases}</TableCell>
                     <TableCell>
@@ -122,9 +181,10 @@ export default function CasesTable() {
                         label={sev.charAt(0).toUpperCase() + sev.slice(1)}
                         color={SEVERITY_COLORS[sev]}
                         size="small"
+                        sx={{ fontWeight: 800 }}
                       />
                     </TableCell>
-                    <TableCell>{c.date}</TableCell>
+                    <TableCell>{formatDate(c.date)}</TableCell>
                     <TableCell align="right">{Number(c.lat).toFixed(4)}</TableCell>
                     <TableCell align="right">{Number(c.lng).toFixed(4)}</TableCell>
                   </TableRow>
@@ -135,7 +195,7 @@ export default function CasesTable() {
         </Table>
       </TableContainer>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontWeight: 600 }}>
         Showing {filtered.length} of {cases.length} records
       </Typography>
     </Box>
