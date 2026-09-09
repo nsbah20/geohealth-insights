@@ -13,6 +13,9 @@ import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
+const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
+const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"];
 
 export default function AddCaseForm({ onCaseAdded }) {
   const [form, setForm] = useState({
@@ -22,6 +25,10 @@ export default function AddCaseForm({ onCaseAdded }) {
     latitude: "",
     longitude: "",
     date: "",
+    status: "New",
+    priority: "Medium",
+    reportSource: "Field report",
+    notes: "",
   });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
@@ -76,7 +83,17 @@ export default function AddCaseForm({ onCaseAdded }) {
       });
 
       setStatus({ type: "success", message: "Case reported successfully!" });
-      setForm((prev) => ({ ...prev, disease: "", location: "", cases: 1, date: "" }));
+      setForm((prev) => ({
+        ...prev,
+        disease: "",
+        location: "",
+        cases: 1,
+        date: "",
+        status: "New",
+        priority: "Medium",
+        reportSource: "Field report",
+        notes: "",
+      }));
       if (onCaseAdded) onCaseAdded();
     } catch (err) {
       const msg =
@@ -148,6 +165,50 @@ export default function AddCaseForm({ onCaseAdded }) {
       />
       <Stack direction="row" spacing={1.2}>
         <TextField
+          select
+          label="Status"
+          name="status"
+          value={form.status}
+          onChange={handleChange}
+          size="small"
+          required
+          fullWidth
+        >
+          {STATUS_OPTIONS.map((status) => (
+            <MenuItem key={status} value={status}>{status}</MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label="Priority"
+          name="priority"
+          value={form.priority}
+          onChange={handleChange}
+          size="small"
+          required
+          fullWidth
+        >
+          {PRIORITY_OPTIONS.map((priority) => (
+            <MenuItem key={priority} value={priority}>{priority}</MenuItem>
+          ))}
+        </TextField>
+      </Stack>
+      <TextField
+        select
+        label="Source"
+        name="reportSource"
+        value={form.reportSource}
+        onChange={handleChange}
+        size="small"
+        required
+        fullWidth
+      >
+        {REPORT_SOURCE_OPTIONS.map((source) => (
+          <MenuItem key={source} value={source}>{source}</MenuItem>
+        ))}
+      </TextField>
+      <Stack direction="row" spacing={1.2}>
+        <TextField
           label="Latitude"
           name="latitude"
           value={form.latitude}
@@ -176,6 +237,18 @@ export default function AddCaseForm({ onCaseAdded }) {
         required
         fullWidth
         InputLabelProps={{ shrink: true }}
+      />
+      <TextField
+        label="Notes"
+        name="notes"
+        value={form.notes}
+        onChange={handleChange}
+        size="small"
+        fullWidth
+        multiline
+        minRows={2}
+        inputProps={{ maxLength: 1000 }}
+        placeholder="Brief context, verification notes, or response action"
       />
 
       <Button

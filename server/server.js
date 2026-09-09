@@ -54,6 +54,18 @@ const caseSchema = new mongoose.Schema(
     lng: { type: Number, required: true },
     cases: { type: Number, default: 1, min: 1 },
     date: { type: String, required: true },
+    status: {
+      type: String,
+      enum: ["New", "Under Review", "Confirmed", "Rejected", "Closed"],
+      default: "New",
+    },
+    priority: {
+      type: String,
+      enum: ["Low", "Medium", "High"],
+      default: "Medium",
+    },
+    reportSource: { type: String, default: "Field report", trim: true },
+    notes: { type: String, default: "", trim: true, maxlength: 1000 },
   },
   { timestamps: true }
 );
@@ -83,6 +95,10 @@ app.post(
     body("longitude").isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
     body("cases").optional().isInt({ min: 1, max: 100000 }).withMessage("Cases must be a positive number"),
     body("date").notEmpty().withMessage("Date is required"),
+    body("status").optional().isIn(["New", "Under Review", "Confirmed", "Rejected", "Closed"]).withMessage("Invalid status"),
+    body("priority").optional().isIn(["Low", "Medium", "High"]).withMessage("Invalid priority"),
+    body("reportSource").optional().trim().escape(),
+    body("notes").optional().trim().isLength({ max: 1000 }).withMessage("Notes must be 1000 characters or fewer").escape(),
   ],
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
@@ -94,7 +110,7 @@ app.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { disease, latitude, longitude, location, cases, date } = req.body;
+    const { disease, latitude, longitude, location, cases, date, status, priority, reportSource, notes } = req.body;
 
     try {
       const newCase = await Case.create({
@@ -104,6 +120,10 @@ app.post(
         location,
         cases: Number(cases) || 1,
         date,
+        status: status || "New",
+        priority: priority || "Medium",
+        reportSource: reportSource || "Field report",
+        notes: notes || "",
       });
       res.status(201).json(newCase);
     } catch (err) {

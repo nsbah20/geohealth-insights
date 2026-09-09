@@ -44,6 +44,8 @@ const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const DRAWER_WIDTH = 360;
 const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
+const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
+const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 
 function getSeverity(count) {
   if (count >= 50) return "High";
@@ -51,9 +53,13 @@ function getSeverity(count) {
   return "Low";
 }
 
-function getSeverityColor(severity) {
-  if (severity === "High") return "#dc2626";
-  if (severity === "Medium") return "#f97316";
+function getPriority(item) {
+  return item.priority || getSeverity(item.cases);
+}
+
+function getPriorityColor(priority) {
+  if (priority === "High") return "#dc2626";
+  if (priority === "Medium") return "#f97316";
   return "#0f766e";
 }
 
@@ -72,14 +78,17 @@ function parseDateValue(value) {
 }
 
 function buildCsv(rows) {
-  const headers = ["Disease", "Location", "Cases", "Date", "Priority", "Latitude", "Longitude", "Source"];
+  const headers = ["Disease", "Location", "Cases", "Date", "Status", "Priority", "Source", "Notes", "Latitude", "Longitude", "Data Origin"];
   const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
   const body = rows.map((row) => [
     row.disease,
     row.location,
     row.cases,
     row.date,
-    getSeverity(row.cases),
+    row.status || "New",
+    getPriority(row),
+    row.reportSource || "Field report",
+    row.notes || "",
     row.lat,
     row.lng,
     row.source || "live",
@@ -119,8 +128,10 @@ function printPdfReport(rows) {
       <td>${escapeHtml(row.location)}</td>
       <td>${escapeHtml(row.cases)}</td>
       <td>${escapeHtml(formatDate(row.date))}</td>
-      <td>${escapeHtml(getSeverity(row.cases))}</td>
-      <td>${escapeHtml(row.source || "live")}</td>
+      <td>${escapeHtml(row.status || "New")}</td>
+      <td>${escapeHtml(getPriority(row))}</td>
+      <td>${escapeHtml(row.reportSource || "Field report")}</td>
+      <td>${escapeHtml(row.notes || "")}</td>
     </tr>
   `).join("");
 
@@ -151,7 +162,7 @@ function printPdfReport(rows) {
         </div>
         <table>
           <thead>
-            <tr><th>Disease</th><th>Location</th><th>Cases</th><th>Date</th><th>Priority</th><th>Source</th></tr>
+            <tr><th>Disease</th><th>Location</th><th>Cases</th><th>Date</th><th>Status</th><th>Priority</th><th>Source</th><th>Notes</th></tr>
           </thead>
           <tbody>${tableRows}</tbody>
         </table>
@@ -223,7 +234,7 @@ function AnalyticsCard({ title, children }) {
   );
 }
 
-function AnalyticsRow({ primary, secondary, value, severity }) {
+function AnalyticsRow({ primary, secondary, value, priority }) {
   return (
     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5}>
       <Box sx={{ minWidth: 0 }}>
@@ -239,7 +250,7 @@ function AnalyticsRow({ primary, secondary, value, severity }) {
         size="small"
         sx={{
           minWidth: 44,
-          bgcolor: getSeverityColor(severity),
+          bgcolor: getPriorityColor(priority),
           color: "white",
           fontWeight: 900,
         }}
@@ -274,7 +285,7 @@ function TrendChart({ rows }) {
               sx={{
                 height: `${Math.max(12, (item.cases / maxCases) * 108)}px`,
                 borderRadius: "8px 8px 3px 3px",
-                bgcolor: getSeverityColor(getSeverity(item.cases)),
+                bgcolor: getPriorityColor(getSeverity(item.cases)),
                 boxShadow: "inset 0 -10px 18px rgba(255,255,255,0.18)",
               }}
             />
@@ -297,7 +308,8 @@ function MapView() {
   const [mapReady, setMapReady] = useState(false);
   const [filters, setFilters] = useState({
     disease: "All",
-    severity: "All",
+    status: "All",
+    priority: "All",
     startDate: "",
     endDate: "",
   });
@@ -316,13 +328,15 @@ function MapView() {
   }, [liveData, showDemoData]);
 
   const filteredData = useMemo(() => data.filter((item) => {
-    const severity = getSeverity(item.cases);
+    const status = item.status || "New";
+    const priority = getPriority(item);
     const caseDate = parseDateValue(item.date);
     const startsAfter = filters.startDate ? caseDate >= parseDateValue(filters.startDate) : true;
     const endsBefore = filters.endDate ? caseDate <= parseDateValue(filters.endDate) : true;
     const diseaseMatch = filters.disease === "All" || item.disease === filters.disease;
-    const severityMatch = filters.severity === "All" || severity === filters.severity;
-    return startsAfter && endsBefore && diseaseMatch && severityMatch;
+    const statusMatch = filters.status === "All" || status === filters.status;
+    const priorityMatch = filters.priority === "All" || priority === filters.priority;
+    return startsAfter && endsBefore && diseaseMatch && statusMatch && priorityMatch;
   }), [data, filters]);
 
   const diseaseOptions = useMemo(
@@ -360,12 +374,20 @@ function MapView() {
     () => [...filteredData].sort((a, b) => parseDateValue(b.date) - parseDateValue(a.date)).slice(0, 4),
     [filteredData]
   );
+  const statusCounts = useMemo(() => {
+    const byStatus = filteredData.reduce((acc, item) => {
+      const status = item.status || "New";
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+    return STATUS_OPTIONS.map((status) => ({ status, count: byStatus[status] || 0 })).filter((item) => item.count > 0);
+  }, [filteredData]);
 
   const geojsonData = useMemo(() => ({
     type: "FeatureCollection",
     features: filteredData.map((d) => ({
       type: "Feature",
-      properties: { cases: d.cases },
+      properties: { cases: d.cases, priority: getPriority(d), status: d.status || "New" },
       geometry: {
         type: "Point",
         coordinates: [parseFloat(d.lng), parseFloat(d.lat)],
@@ -378,7 +400,7 @@ function MapView() {
   };
 
   const resetFilters = () => {
-    setFilters({ disease: "All", severity: "All", startDate: "", endDate: "" });
+    setFilters({ disease: "All", status: "All", priority: "All", startDate: "", endDate: "" });
   };
 
   const fitMapToCases = useCallback((duration = 900) => {
@@ -519,11 +541,12 @@ function MapView() {
         if (isNaN(lng) || isNaN(lat)) return;
 
         const el = document.createElement("div");
-        const severity = getSeverity(point.cases);
+        const priority = getPriority(point);
+        const status = point.status || "New";
         const size = point.cases <= 1 ? 18 : Math.min(44, 18 + point.cases / 2);
         el.style.cssText = `
           width:${size}px; height:${size}px; border-radius:50%;
-          background-color:${getSeverityColor(severity)};
+          background-color:${getPriorityColor(priority)};
           border:3px solid #fff; box-shadow:0 10px 22px rgba(15,23,42,0.24);
         `;
 
@@ -534,8 +557,10 @@ function MapView() {
               <strong>${escapeHtml(point.disease)}</strong>
               <span>${escapeHtml(point.location)}</span>
               <div><b>${escapeHtml(point.cases)}</b> reported cases</div>
-              <div>${escapeHtml(formatDate(point.date))} · ${escapeHtml(severity)} priority</div>
-              <div>Source: ${escapeHtml(point.source || "live")}</div>
+              <div>${escapeHtml(formatDate(point.date))} · ${escapeHtml(priority)} priority</div>
+              <div>Status: ${escapeHtml(status)}</div>
+              <div>Source: ${escapeHtml(point.reportSource || "Field report")} · ${escapeHtml(point.source || "live")}</div>
+              ${point.notes ? `<div>${escapeHtml(point.notes)}</div>` : ""}
             </div>
           `))
           .addTo(map);
@@ -606,6 +631,12 @@ function MapView() {
             <StatCard label="Total Cases" value={totalReported} accent="#0f766e" icon={<CoronavirusIcon />} />
             <StatCard label="Visible Records" value={filteredData.length} accent="#2563eb" icon={<TimelineIcon />} />
             <StatCard label="Last 7 Days" value={recentCases.length} accent="#f97316" icon={<InsightsIcon />} />
+            <StatCard
+              label="Under Review"
+              value={filteredData.filter((item) => (item.status || "New") === "Under Review").length}
+              accent="#334155"
+              icon={<TableChartIcon />}
+            />
           </Stack>
         )}
 
@@ -668,16 +699,29 @@ function MapView() {
           </TextField>
           <TextField
             select
+            label="Status"
+            value={filters.status}
+            onChange={(event) => updateFilter("status", event.target.value)}
+            size="small"
+            fullWidth
+          >
+            <MenuItem value="All">All statuses</MenuItem>
+            {STATUS_OPTIONS.map((status) => (
+              <MenuItem key={status} value={status}>{status}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
             label="Priority"
-            value={filters.severity}
-            onChange={(event) => updateFilter("severity", event.target.value)}
+            value={filters.priority}
+            onChange={(event) => updateFilter("priority", event.target.value)}
             size="small"
             fullWidth
           >
             <MenuItem value="All">All priorities</MenuItem>
-            <MenuItem value="High">High</MenuItem>
-            <MenuItem value="Medium">Medium</MenuItem>
-            <MenuItem value="Low">Low</MenuItem>
+            {PRIORITY_OPTIONS.map((priority) => (
+              <MenuItem key={priority} value={priority}>{priority}</MenuItem>
+            ))}
           </TextField>
           <Stack direction="row" spacing={1.2}>
             <TextField
@@ -807,9 +851,9 @@ function MapView() {
               <AnalyticsRow
                 key={item._id || `${item.location}-${item.date}`}
                 primary={item.disease}
-                secondary={`${item.location} · ${formatDate(item.date)}`}
+                secondary={`${item.location} · ${item.status || "New"} · ${formatDate(item.date)}`}
                 value={item.cases}
-                severity={getSeverity(item.cases)}
+                priority={getPriority(item)}
               />
             ))}
           </AnalyticsCard>
@@ -822,7 +866,7 @@ function MapView() {
                 primary={item.location}
                 secondary="Reported case volume"
                 value={item.cases}
-                severity={getSeverity(item.cases)}
+                priority={getSeverity(item.cases)}
               />
             ))}
           </AnalyticsCard>
@@ -835,7 +879,20 @@ function MapView() {
                 primary={item.disease}
                 secondary="Total reported cases"
                 value={item.cases}
-                severity={getSeverity(item.cases)}
+                priority={getSeverity(item.cases)}
+              />
+            ))}
+          </AnalyticsCard>
+          <AnalyticsCard title="Workflow Status">
+            {statusCounts.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">No workflow activity available.</Typography>
+            ) : statusCounts.map((item) => (
+              <AnalyticsRow
+                key={item.status}
+                primary={item.status}
+                secondary="Records in this review stage"
+                value={item.count}
+                priority={item.status === "Confirmed" || item.status === "Closed" ? "Low" : item.status === "Under Review" ? "Medium" : "High"}
               />
             ))}
           </AnalyticsCard>

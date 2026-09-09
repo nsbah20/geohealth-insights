@@ -21,17 +21,27 @@ import SearchIcon from "@mui/icons-material/Search";
 import demoData from "./demoData";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
 
-const SEVERITY_COLORS = {
-  high: "error",
-  medium: "warning",
-  low: "success",
+const PRIORITY_COLORS = {
+  High: "error",
+  Medium: "warning",
+  Low: "success",
 };
 
-function getSeverity(count) {
-  if (count >= 50) return "high";
-  if (count >= 20) return "medium";
-  return "low";
+const STATUS_COLORS = {
+  New: "warning",
+  "Under Review": "info",
+  Confirmed: "success",
+  Rejected: "default",
+  Closed: "default",
+};
+
+function getPriority(item) {
+  if (item.priority) return item.priority;
+  if (item.cases >= 50) return "High";
+  if (item.cases >= 20) return "Medium";
+  return "Low";
 }
 
 function formatDate(value) {
@@ -57,7 +67,7 @@ export default function CasesTable() {
   useEffect(() => {
     axios
       .get(`${API_URL}/api/health-data`)
-      .then((res) => setCases([...res.data, ...demoData]))
+      .then((res) => setCases(SHOW_DEMO_BY_DEFAULT ? [...res.data, ...demoData] : res.data))
       .catch(() => {
         setCases(demoData);
         setError(null);
@@ -68,7 +78,11 @@ export default function CasesTable() {
   const filtered = cases.filter(
     (c) =>
       c.disease?.toLowerCase().includes(search.toLowerCase()) ||
-      c.location?.toLowerCase().includes(search.toLowerCase())
+      c.location?.toLowerCase().includes(search.toLowerCase()) ||
+      c.status?.toLowerCase().includes(search.toLowerCase()) ||
+      c.priority?.toLowerCase().includes(search.toLowerCase()) ||
+      c.reportSource?.toLowerCase().includes(search.toLowerCase()) ||
+      c.notes?.toLowerCase().includes(search.toLowerCase())
   );
 
   if (loading)
@@ -143,7 +157,10 @@ export default function CasesTable() {
               <TableCell>Disease</TableCell>
               <TableCell>Location</TableCell>
               <TableCell align="right">Cases</TableCell>
-              <TableCell>Severity</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Priority</TableCell>
+              <TableCell>Source</TableCell>
+              <TableCell>Notes</TableCell>
               <TableCell>Date</TableCell>
               <TableCell align="right">Lat</TableCell>
               <TableCell align="right">Lng</TableCell>
@@ -152,13 +169,14 @@ export default function CasesTable() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center">
+                <TableCell colSpan={11} align="center">
                   No cases found.
                 </TableCell>
               </TableRow>
             ) : (
               filtered.map((c, i) => {
-                const sev = getSeverity(c.cases);
+                const priority = getPriority(c);
+                const status = c.status || "New";
                 return (
                   <TableRow
                     key={c._id || i}
@@ -178,11 +196,25 @@ export default function CasesTable() {
                     <TableCell align="right">{c.cases}</TableCell>
                     <TableCell>
                       <Chip
-                        label={sev.charAt(0).toUpperCase() + sev.slice(1)}
-                        color={SEVERITY_COLORS[sev]}
+                        label={status}
+                        color={STATUS_COLORS[status] || "default"}
                         size="small"
                         sx={{ fontWeight: 800 }}
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={priority}
+                        color={PRIORITY_COLORS[priority] || "default"}
+                        size="small"
+                        sx={{ fontWeight: 800 }}
+                      />
+                    </TableCell>
+                    <TableCell>{c.reportSource || "Field report"}</TableCell>
+                    <TableCell sx={{ maxWidth: 280 }}>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {c.notes || "No notes"}
+                      </Typography>
                     </TableCell>
                     <TableCell>{formatDate(c.date)}</TableCell>
                     <TableCell align="right">{Number(c.lat).toFixed(4)}</TableCell>
