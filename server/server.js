@@ -10,6 +10,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:3000";
 const allowedOrigins = CLIENT_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
+const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
+const CASE_PRIORITIES = ["Low", "Medium", "High"];
 mongoose.set("bufferCommands", false);
 
 // ── Security middleware ──────────────────────────────────────────────────────
@@ -22,7 +24,7 @@ app.use(
       }
       return callback(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PATCH"],
     allowedHeaders: ["Content-Type"],
   })
 );
@@ -56,12 +58,12 @@ const caseSchema = new mongoose.Schema(
     date: { type: String, required: true },
     status: {
       type: String,
-      enum: ["New", "Under Review", "Confirmed", "Rejected", "Closed"],
+      enum: CASE_STATUSES,
       default: "New",
     },
     priority: {
       type: String,
-      enum: ["Low", "Medium", "High"],
+      enum: CASE_PRIORITIES,
       default: "Medium",
     },
     reportSource: { type: String, default: "Field report", trim: true },
@@ -95,8 +97,8 @@ app.post(
     body("longitude").isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
     body("cases").optional().isInt({ min: 1, max: 100000 }).withMessage("Cases must be a positive number"),
     body("date").notEmpty().withMessage("Date is required"),
-    body("status").optional().isIn(["New", "Under Review", "Confirmed", "Rejected", "Closed"]).withMessage("Invalid status"),
-    body("priority").optional().isIn(["Low", "Medium", "High"]).withMessage("Invalid priority"),
+    body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
+    body("priority").optional().isIn(CASE_PRIORITIES).withMessage("Invalid priority"),
     body("reportSource").optional().trim().escape(),
     body("notes").optional().trim().isLength({ max: 1000 }).withMessage("Notes must be 1000 characters or fewer").escape(),
   ],
@@ -129,6 +131,54 @@ app.post(
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to save case" });
+    }
+  }
+);
+
+app.patch(
+  "/api/cases/:id",
+  [
+    body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
+    body("priority").optional().isIn(CASE_PRIORITIES).withMessage("Invalid priority"),
+    body("reportSource").optional().trim().escape(),
+    body("notes").optional().trim().isLength({ max: 1000 }).withMessage("Notes must be 1000 characters or fewer").escape(),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid case id" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const allowedUpdates = ["status", "priority", "reportSource", "notes"];
+    const updates = allowedUpdates.reduce((acc, field) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        acc[field] = req.body[field];
+      }
+      return acc;
+    }, {});
+
+    try {
+      const updatedCase = await Case.findByIdAndUpdate(req.params.id, updates, {
+        new: true,
+        runValidators: true,
+      });
+
+      if (!updatedCase) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+
+      res.json(updatedCase);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update case" });
     }
   }
 );

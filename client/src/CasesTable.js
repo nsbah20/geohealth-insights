@@ -13,11 +13,18 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   TextField,
   InputAdornment,
+  MenuItem,
   Stack,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import EditIcon from "@mui/icons-material/Edit";
 import demoData from "./demoData";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
@@ -36,6 +43,9 @@ const STATUS_COLORS = {
   Rejected: "default",
   Closed: "default",
 };
+const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
+const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"];
 
 function getPriority(item) {
   if (item.priority) return item.priority;
@@ -63,6 +73,15 @@ export default function CasesTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [selectedCase, setSelectedCase] = useState(null);
+  const [editForm, setEditForm] = useState({
+    status: "New",
+    priority: "Medium",
+    reportSource: "Field report",
+    notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState(null);
 
   useEffect(() => {
     axios
@@ -84,6 +103,45 @@ export default function CasesTable() {
       c.reportSource?.toLowerCase().includes(search.toLowerCase()) ||
       c.notes?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const openReview = (caseRecord) => {
+    setSelectedCase(caseRecord);
+    setEditForm({
+      status: caseRecord.status || "New",
+      priority: getPriority(caseRecord),
+      reportSource: caseRecord.reportSource || "Field report",
+      notes: caseRecord.notes || "",
+    });
+    setSaveMessage(null);
+  };
+
+  const closeReview = () => {
+    if (saving) return;
+    setSelectedCase(null);
+    setSaveMessage(null);
+  };
+
+  const handleEditChange = (event) => {
+    setEditForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  };
+
+  const saveReview = async () => {
+    if (!selectedCase?._id || String(selectedCase._id).startsWith("demo-")) return;
+    setSaving(true);
+    setSaveMessage(null);
+
+    try {
+      const res = await axios.patch(`${API_URL}/api/cases/${selectedCase._id}`, editForm);
+      setCases((current) => current.map((item) => (item._id === selectedCase._id ? res.data : item)));
+      setSelectedCase(res.data);
+      setSaveMessage({ type: "success", text: "Case review updated." });
+    } catch (err) {
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to update this case.";
+      setSaveMessage({ type: "error", text });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading)
     return (
@@ -164,12 +222,13 @@ export default function CasesTable() {
               <TableCell>Date</TableCell>
               <TableCell align="right">Lat</TableCell>
               <TableCell align="right">Lng</TableCell>
+              <TableCell align="right">Review</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} align="center">
+                <TableCell colSpan={12} align="center">
                   No cases found.
                 </TableCell>
               </TableRow>
@@ -219,6 +278,18 @@ export default function CasesTable() {
                     <TableCell>{formatDate(c.date)}</TableCell>
                     <TableCell align="right">{Number(c.lat).toFixed(4)}</TableCell>
                     <TableCell align="right">{Number(c.lng).toFixed(4)}</TableCell>
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<EditIcon />}
+                        onClick={() => openReview(c)}
+                        disabled={String(c._id || "").startsWith("demo-")}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Review
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })
@@ -230,6 +301,97 @@ export default function CasesTable() {
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontWeight: 600 }}>
         Showing {filtered.length} of {cases.length} records
       </Typography>
+
+      <Dialog open={Boolean(selectedCase)} onClose={closeReview} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900, color: "#102a2c" }}>
+          Review Case
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedCase && (
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={900} color="#102a2c">
+                  {selectedCase.disease}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedCase.location} · {selectedCase.cases} reported cases · {formatDate(selectedCase.date)}
+                </Typography>
+              </Box>
+              {saveMessage && (
+                <Alert severity={saveMessage.type} sx={{ fontSize: "0.85rem" }}>
+                  {saveMessage.text}
+                </Alert>
+              )}
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <TextField
+                  select
+                  label="Status"
+                  name="status"
+                  value={editForm.status}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                >
+                  {STATUS_OPTIONS.map((status) => (
+                    <MenuItem key={status} value={status}>{status}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Priority"
+                  name="priority"
+                  value={editForm.priority}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                >
+                  {PRIORITY_OPTIONS.map((priority) => (
+                    <MenuItem key={priority} value={priority}>{priority}</MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+              <TextField
+                select
+                label="Source"
+                name="reportSource"
+                value={editForm.reportSource}
+                onChange={handleEditChange}
+                size="small"
+                fullWidth
+              >
+                {REPORT_SOURCE_OPTIONS.map((source) => (
+                  <MenuItem key={source} value={source}>{source}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Review Notes"
+                name="notes"
+                value={editForm.notes}
+                onChange={handleEditChange}
+                size="small"
+                fullWidth
+                multiline
+                minRows={4}
+                inputProps={{ maxLength: 1000 }}
+                placeholder="Add verification notes, follow-up action, or response context"
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={closeReview} disabled={saving} sx={{ fontWeight: 800 }}>
+            Close
+          </Button>
+          <Button
+            onClick={saveReview}
+            disabled={saving || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
+            variant="contained"
+            sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
+          >
+            {saving ? "Saving..." : "Save Review"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
