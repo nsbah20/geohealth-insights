@@ -234,6 +234,66 @@ function AnalyticsCard({ title, children }) {
   );
 }
 
+function CommandMetric({ label, value, detail, accent, icon, onClick }) {
+  return (
+    <Card
+      component={onClick ? "button" : "div"}
+      onClick={onClick}
+      elevation={0}
+      sx={{
+        width: "100%",
+        textAlign: "left",
+        border: "1px solid rgba(15, 23, 42, 0.08)",
+        borderRadius: 2,
+        bgcolor: "rgba(255,255,255,0.96)",
+        boxShadow: "0 12px 28px rgba(15, 23, 42, 0.08)",
+        cursor: onClick ? "pointer" : "default",
+        p: 0,
+        transition: "transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease",
+        "&:hover": onClick
+          ? {
+              transform: "translateY(-2px)",
+              boxShadow: "0 18px 34px rgba(15, 23, 42, 0.12)",
+              borderColor: accent,
+            }
+          : undefined,
+      }}
+    >
+      <CardContent sx={{ p: 1.6, "&:last-child": { pb: 1.6 } }}>
+        <Stack direction="row" alignItems="center" spacing={1.4}>
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: 2,
+              display: "grid",
+              placeItems: "center",
+              bgcolor: accent,
+              color: "white",
+              flexShrink: 0,
+            }}
+          >
+            {icon}
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 900, textTransform: "uppercase" }}>
+              {label}
+            </Typography>
+            <Stack direction="row" alignItems="baseline" spacing={1}>
+              <Typography variant="h4" fontWeight={900} color="#102a2c" sx={{ lineHeight: 1 }}>
+                {value}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {detail}
+              </Typography>
+            </Stack>
+          </Box>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AnalyticsRow({ primary, secondary, value, priority }) {
   return (
     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5}>
@@ -345,6 +405,11 @@ function MapView() {
   );
 
   const totalReported = filteredData.reduce((sum, d) => sum + d.cases, 0);
+  const newRecords = filteredData.filter((item) => (item.status || "New") === "New");
+  const underReviewRecords = filteredData.filter((item) => (item.status || "New") === "Under Review");
+  const confirmedRecords = filteredData.filter((item) => (item.status || "New") === "Confirmed");
+  const highPriorityRecords = filteredData.filter((item) => getPriority(item) === "High");
+  const pendingReviewCount = newRecords.length + underReviewRecords.length;
   const recentCases = filteredData.filter((c) => {
     const today = new Date();
     const caseDate = parseDateValue(c.date);
@@ -372,6 +437,20 @@ function MapView() {
   }, [filteredData]);
   const recentReports = useMemo(
     () => [...filteredData].sort((a, b) => parseDateValue(b.date) - parseDateValue(a.date)).slice(0, 4),
+    [filteredData]
+  );
+  const priorityQueue = useMemo(
+    () => [...filteredData]
+      .sort((a, b) => {
+        const priorityRank = { High: 3, Medium: 2, Low: 1 };
+        const statusRank = { New: 3, "Under Review": 2, Confirmed: 1, Rejected: 0, Closed: 0 };
+        const priorityDelta = (priorityRank[getPriority(b)] || 0) - (priorityRank[getPriority(a)] || 0);
+        if (priorityDelta !== 0) return priorityDelta;
+        const statusDelta = (statusRank[b.status || "New"] || 0) - (statusRank[a.status || "New"] || 0);
+        if (statusDelta !== 0) return statusDelta;
+        return parseDateValue(b.date) - parseDateValue(a.date);
+      })
+      .slice(0, 4),
     [filteredData]
   );
   const statusCounts = useMemo(() => {
@@ -632,8 +711,8 @@ function MapView() {
             <StatCard label="Visible Records" value={filteredData.length} accent="#2563eb" icon={<TimelineIcon />} />
             <StatCard label="Last 7 Days" value={recentCases.length} accent="#f97316" icon={<InsightsIcon />} />
             <StatCard
-              label="Under Review"
-              value={filteredData.filter((item) => (item.status || "New") === "Under Review").length}
+              label="Pending Review"
+              value={pendingReviewCount}
               accent="#334155"
               icon={<TableChartIcon />}
             />
@@ -809,10 +888,51 @@ function MapView() {
             </Button>
           </ButtonGroup>
         </Box>
-        <Box sx={{ p: 2, height: { xs: 430, md: 380, xl: 430 }, flexShrink: 0 }}>
+        <Box sx={{ p: 2, flexShrink: 0 }}>
           <Box
             sx={{
-              height: "100%",
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(4, 1fr)" },
+              gap: 1.5,
+              mb: 1.5,
+            }}
+          >
+            <CommandMetric
+              label="New Reports"
+              value={newRecords.length}
+              detail="awaiting first review"
+              accent="#f97316"
+              icon={<InsightsIcon />}
+              onClick={() => setFilters((current) => ({ ...current, status: "New" }))}
+            />
+            <CommandMetric
+              label="Under Review"
+              value={underReviewRecords.length}
+              detail="being triaged"
+              accent="#2563eb"
+              icon={<TableChartIcon />}
+              onClick={() => setFilters((current) => ({ ...current, status: "Under Review" }))}
+            />
+            <CommandMetric
+              label="High Priority"
+              value={highPriorityRecords.length}
+              detail="needs attention"
+              accent="#dc2626"
+              icon={<WhatshotIcon />}
+              onClick={() => setFilters((current) => ({ ...current, priority: "High" }))}
+            />
+            <CommandMetric
+              label="Confirmed"
+              value={confirmedRecords.length}
+              detail="validated signals"
+              accent="#0f766e"
+              icon={<CoronavirusIcon />}
+              onClick={() => setFilters((current) => ({ ...current, status: "Confirmed" }))}
+            />
+          </Box>
+          <Box
+            sx={{
+              height: { xs: 340, md: 250, xl: 300 },
               position: "relative",
               borderRadius: 2,
               overflow: "hidden",
@@ -843,6 +963,19 @@ function MapView() {
         >
           <AnalyticsCard title="Case Trend">
             <TrendChart rows={filteredData} />
+          </AnalyticsCard>
+          <AnalyticsCard title="Priority Queue">
+            {priorityQueue.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">No records need attention under the current filters.</Typography>
+            ) : priorityQueue.map((item) => (
+              <AnalyticsRow
+                key={item._id || `${item.location}-${item.date}`}
+                primary={`${item.disease} · ${getPriority(item)}`}
+                secondary={`${item.location} · ${item.status || "New"} · ${formatDate(item.date)}`}
+                value={item.cases}
+                priority={getPriority(item)}
+              />
+            ))}
           </AnalyticsCard>
           <AnalyticsCard title="Recent Reports">
             {recentReports.length === 0 ? (
