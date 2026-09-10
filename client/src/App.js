@@ -565,8 +565,18 @@ function MapView() {
 
       if (validCoordinates.length === 0) return;
 
-      if (validCoordinates.length === 1) {
-        mapRef.current.flyTo({ center: validCoordinates[0], zoom: 9, duration });
+      const lngValues = validCoordinates.map(([lng]) => lng);
+      const latValues = validCoordinates.map(([, lat]) => lat);
+      const minLng = Math.min(...lngValues);
+      const maxLng = Math.max(...lngValues);
+      const minLat = Math.min(...latValues);
+      const maxLat = Math.max(...latValues);
+      const lngSpread = maxLng - minLng;
+      const latSpread = maxLat - minLat;
+      const center = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+
+      if (validCoordinates.length === 1 || (lngSpread < 0.18 && latSpread < 0.18)) {
+        mapRef.current.flyTo({ center, zoom: 10.5, duration });
         return;
       }
 
@@ -586,7 +596,7 @@ function MapView() {
           bottom: verticalPadding,
           left: horizontalPadding,
         },
-        maxZoom: 6,
+        maxZoom: 11,
         duration,
         linear: false,
       });
@@ -727,6 +737,15 @@ function MapView() {
     if (map.isStyleLoaded()) fitMapToCases();
     else map.once("load", fitMapToCases);
   }, [filteredData, fitMapToCases, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady || filteredData.length === 0) return undefined;
+    const timeout = window.setTimeout(() => {
+      mapRef.current?.resize();
+      fitMapToCases(500);
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [filteredData.length, fitMapToCases, mapReady, showHeatmap]);
 
   useEffect(() => {
     if (filteredData.length === 1) {
