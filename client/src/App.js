@@ -141,6 +141,13 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function getCaseCoordinates(point) {
+  const lng = Number(point.lng);
+  const lat = Number(point.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return [lng, lat];
+}
+
 function printPdfReport(rows) {
   const totalCases = rows.reduce((sum, item) => sum + item.cases, 0);
   const reportWindow = window.open("", "_blank", "width=1000,height=800");
@@ -531,14 +538,26 @@ function MapView() {
 
   const geojsonData = useMemo(() => ({
     type: "FeatureCollection",
-    features: filteredData.map((d) => ({
-      type: "Feature",
-      properties: { cases: d.cases, priority: getPriority(d), status: d.status || "New" },
-      geometry: {
-        type: "Point",
-        coordinates: [parseFloat(d.lng), parseFloat(d.lat)],
-      },
-    })),
+    features: filteredData
+      .map((d) => {
+        const coordinates = getCaseCoordinates(d);
+        if (!coordinates) return null;
+        return {
+          type: "Feature",
+          properties: {
+            cases: Number(d.cases) || 1,
+            disease: d.disease || "Unknown",
+            location: d.location || "Unknown",
+            priority: getPriority(d),
+            status: d.status || "New",
+          },
+          geometry: {
+            type: "Point",
+            coordinates,
+          },
+        };
+      })
+      .filter(Boolean),
   }), [filteredData]);
 
   const updateFilter = (field, value) => {
@@ -560,8 +579,8 @@ function MapView() {
       if (!mapRef.current) return;
 
       const validCoordinates = filteredData
-        .map((point) => [Number(point.lng), Number(point.lat)])
-        .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+        .map(getCaseCoordinates)
+        .filter(Boolean);
 
       if (validCoordinates.length === 0) return;
 
@@ -656,31 +675,57 @@ function MapView() {
     if (!mapRef.current) return;
     const map = mapRef.current;
 
-    const ensureHeatmap = () => {
+    const ensureMapLayers = () => {
       if (!map.getSource("cases-heat-source")) {
         map.addSource("cases-heat-source", { type: "geojson", data: geojsonData });
+      } else {
+        map.getSource("cases-heat-source").setData(geojsonData);
+      }
+
+      if (!map.getLayer("cases-heat-layer")) {
         map.addLayer({
           id: "cases-heat-layer",
           type: "heatmap",
           source: "cases-heat-source",
           paint: {
-            "heatmap-weight": ["interpolate", ["linear"], ["get", "cases"], 0, 0, 50, 0.5, 100, 1],
-            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 12, 15, 40],
+            "heatmap-weight": ["interpolate", ["linear"], ["get", "cases"], 1, 0.4, 20, 0.65, 100, 1],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 18, 9, 42, 15, 64],
             "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(20,184,166,0)", 0.35, "#5eead4", 0.55, "#facc15", 0.75, "#fb923c", 1, "#ef4444",
             ],
-            "heatmap-opacity": 0.82,
+            "heatmap-opacity": 0.9,
           },
         });
-      } else {
-        map.getSource("cases-heat-source").setData(geojsonData);
       }
+
+      if (!map.getLayer("cases-point-layer")) {
+        map.addLayer({
+          id: "cases-point-layer",
+          type: "circle",
+          source: "cases-heat-source",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["get", "cases"], 1, 7, 20, 11, 100, 20],
+            "circle-color": [
+              "match", ["get", "priority"],
+              "High", "#dc2626",
+              "Medium", "#f97316",
+              "#0f766e",
+            ],
+            "circle-opacity": 0.95,
+            "circle-stroke-color": "#ffffff",
+            "circle-stroke-width": 2.5,
+            "circle-stroke-opacity": 1,
+          },
+        });
+      }
+
       map.setLayoutProperty("cases-heat-layer", "visibility", showHeatmap ? "visible" : "none");
+      map.setLayoutProperty("cases-point-layer", "visibility", showHeatmap ? "none" : "visible");
     };
 
-    if (map.isStyleLoaded()) ensureHeatmap();
-    else map.once("load", ensureHeatmap);
+    if (map.isStyleLoaded()) ensureMapLayers();
+    else map.once("load", ensureMapLayers);
   }, [geojsonData, showHeatmap]);
 
   useEffect(() => {
@@ -692,22 +737,23 @@ function MapView() {
       if (showHeatmap) return;
 
       filteredData.forEach((point) => {
-        const lng = parseFloat(point.lng);
-        const lat = parseFloat(point.lat);
-        if (isNaN(lng) || isNaN(lat)) return;
+        const coordinates = getCaseCoordinates(point);
+        if (!coordinates) return;
 
         const el = document.createElement("div");
         const priority = getPriority(point);
         const status = point.status || "New";
         const size = point.cases <= 1 ? 18 : Math.min(44, 18 + point.cases / 2);
+        el.className = "geohealth-marker";
         el.style.cssText = `
           width:${size}px; height:${size}px; border-radius:50%;
           background-color:${getPriorityColor(priority)};
           border:3px solid #fff; box-shadow:0 10px 22px rgba(15,23,42,0.24);
+          cursor:pointer; pointer-events:auto; z-index:10;
         `;
 
         const marker = new mapboxgl.Marker(el)
-          .setLngLat([lng, lat])
+          .setLngLat(coordinates)
           .setPopup(new mapboxgl.Popup({ offset: 18 }).setHTML(`
             <div class="case-popup">
               <strong>${escapeHtml(point.disease)}</strong>
