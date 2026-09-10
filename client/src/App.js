@@ -46,6 +46,8 @@ const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
 const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
+const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 
 function getSeverity(count) {
   if (count >= 50) return "High";
@@ -78,13 +80,35 @@ function parseDateValue(value) {
 }
 
 function buildCsv(rows) {
-  const headers = ["Disease", "Location", "Cases", "Date", "Status", "Priority", "Source", "Notes", "Latitude", "Longitude", "Data Origin"];
+  const headers = [
+    "Disease",
+    "Location",
+    "Cases",
+    "Report Date",
+    "Symptom Onset",
+    "Age Group",
+    "Sex",
+    "Facility",
+    "Suspected Exposure",
+    "Status",
+    "Priority",
+    "Source",
+    "Notes",
+    "Latitude",
+    "Longitude",
+    "Data Origin",
+  ];
   const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
   const body = rows.map((row) => [
     row.disease,
     row.location,
     row.cases,
     row.date,
+    row.symptomOnsetDate || "",
+    row.ageGroup || "Unknown",
+    row.sex || "Unknown",
+    row.facility || "",
+    row.suspectedExposure || "",
     row.status || "New",
     getPriority(row),
     row.reportSource || "Field report",
@@ -128,6 +152,10 @@ function printPdfReport(rows) {
       <td>${escapeHtml(row.location)}</td>
       <td>${escapeHtml(row.cases)}</td>
       <td>${escapeHtml(formatDate(row.date))}</td>
+      <td>${escapeHtml(row.symptomOnsetDate ? formatDate(row.symptomOnsetDate) : "Unknown")}</td>
+      <td>${escapeHtml(row.ageGroup || "Unknown")}</td>
+      <td>${escapeHtml(row.sex || "Unknown")}</td>
+      <td>${escapeHtml(row.facility || "Not specified")}</td>
       <td>${escapeHtml(row.status || "New")}</td>
       <td>${escapeHtml(getPriority(row))}</td>
       <td>${escapeHtml(row.reportSource || "Field report")}</td>
@@ -162,7 +190,7 @@ function printPdfReport(rows) {
         </div>
         <table>
           <thead>
-            <tr><th>Disease</th><th>Location</th><th>Cases</th><th>Date</th><th>Status</th><th>Priority</th><th>Source</th><th>Notes</th></tr>
+            <tr><th>Disease</th><th>Location</th><th>Cases</th><th>Report Date</th><th>Onset</th><th>Age</th><th>Sex</th><th>Facility</th><th>Status</th><th>Priority</th><th>Source</th><th>Notes</th></tr>
           </thead>
           <tbody>${tableRows}</tbody>
         </table>
@@ -370,6 +398,8 @@ function MapView() {
     disease: "All",
     status: "All",
     priority: "All",
+    ageGroup: "All",
+    sex: "All",
     startDate: "",
     endDate: "",
   });
@@ -396,7 +426,9 @@ function MapView() {
     const diseaseMatch = filters.disease === "All" || item.disease === filters.disease;
     const statusMatch = filters.status === "All" || status === filters.status;
     const priorityMatch = filters.priority === "All" || priority === filters.priority;
-    return startsAfter && endsBefore && diseaseMatch && statusMatch && priorityMatch;
+    const ageGroupMatch = filters.ageGroup === "All" || (item.ageGroup || "Unknown") === filters.ageGroup;
+    const sexMatch = filters.sex === "All" || (item.sex || "Unknown") === filters.sex;
+    return startsAfter && endsBefore && diseaseMatch && statusMatch && priorityMatch && ageGroupMatch && sexMatch;
   }), [data, filters]);
 
   const diseaseOptions = useMemo(
@@ -432,6 +464,28 @@ function MapView() {
     }, {});
     return Object.entries(byDisease)
       .map(([disease, cases]) => ({ disease, cases }))
+      .sort((a, b) => b.cases - a.cases)
+      .slice(0, 4);
+  }, [filteredData]);
+  const ageGroupMix = useMemo(() => {
+    const byAgeGroup = filteredData.reduce((acc, item) => {
+      const ageGroup = item.ageGroup || "Unknown";
+      acc[ageGroup] = (acc[ageGroup] || 0) + item.cases;
+      return acc;
+    }, {});
+    return Object.entries(byAgeGroup)
+      .map(([ageGroup, cases]) => ({ ageGroup, cases }))
+      .sort((a, b) => b.cases - a.cases)
+      .slice(0, 4);
+  }, [filteredData]);
+  const facilitySignals = useMemo(() => {
+    const byFacility = filteredData.reduce((acc, item) => {
+      const facility = item.facility || "Not specified";
+      acc[facility] = (acc[facility] || 0) + item.cases;
+      return acc;
+    }, {});
+    return Object.entries(byFacility)
+      .map(([facility, cases]) => ({ facility, cases }))
       .sort((a, b) => b.cases - a.cases)
       .slice(0, 4);
   }, [filteredData]);
@@ -479,7 +533,7 @@ function MapView() {
   };
 
   const resetFilters = () => {
-    setFilters({ disease: "All", status: "All", priority: "All", startDate: "", endDate: "" });
+    setFilters({ disease: "All", status: "All", priority: "All", ageGroup: "All", sex: "All", startDate: "", endDate: "" });
   };
 
   const fitMapToCases = useCallback((duration = 900) => {
@@ -637,6 +691,9 @@ function MapView() {
               <span>${escapeHtml(point.location)}</span>
               <div><b>${escapeHtml(point.cases)}</b> reported cases</div>
               <div>${escapeHtml(formatDate(point.date))} · ${escapeHtml(priority)} priority</div>
+              <div>Onset: ${escapeHtml(point.symptomOnsetDate ? formatDate(point.symptomOnsetDate) : "Unknown")} · Age: ${escapeHtml(point.ageGroup || "Unknown")} · Sex: ${escapeHtml(point.sex || "Unknown")}</div>
+              ${point.facility ? `<div>Facility: ${escapeHtml(point.facility)}</div>` : ""}
+              ${point.suspectedExposure ? `<div>Exposure: ${escapeHtml(point.suspectedExposure)}</div>` : ""}
               <div>Status: ${escapeHtml(status)}</div>
               <div>Source: ${escapeHtml(point.reportSource || "Field report")} · ${escapeHtml(point.source || "live")}</div>
               ${point.notes ? `<div>${escapeHtml(point.notes)}</div>` : ""}
@@ -802,6 +859,34 @@ function MapView() {
               <MenuItem key={priority} value={priority}>{priority}</MenuItem>
             ))}
           </TextField>
+          <Stack direction="row" spacing={1.2}>
+            <TextField
+              select
+              label="Age"
+              value={filters.ageGroup}
+              onChange={(event) => updateFilter("ageGroup", event.target.value)}
+              size="small"
+              fullWidth
+            >
+              <MenuItem value="All">All ages</MenuItem>
+              {AGE_GROUP_OPTIONS.map((ageGroup) => (
+                <MenuItem key={ageGroup} value={ageGroup}>{ageGroup}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Sex"
+              value={filters.sex}
+              onChange={(event) => updateFilter("sex", event.target.value)}
+              size="small"
+              fullWidth
+            >
+              <MenuItem value="All">All sex groups</MenuItem>
+              {SEX_OPTIONS.map((sex) => (
+                <MenuItem key={sex} value={sex}>{sex}</MenuItem>
+              ))}
+            </TextField>
+          </Stack>
           <Stack direction="row" spacing={1.2}>
             <TextField
               label="Start"
@@ -1011,6 +1096,32 @@ function MapView() {
                 key={item.disease}
                 primary={item.disease}
                 secondary="Total reported cases"
+                value={item.cases}
+                priority={getSeverity(item.cases)}
+              />
+            ))}
+          </AnalyticsCard>
+          <AnalyticsCard title="Age Groups">
+            {ageGroupMix.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">No age group data available.</Typography>
+            ) : ageGroupMix.map((item) => (
+              <AnalyticsRow
+                key={item.ageGroup}
+                primary={item.ageGroup}
+                secondary="Reported cases by age group"
+                value={item.cases}
+                priority={getSeverity(item.cases)}
+              />
+            ))}
+          </AnalyticsCard>
+          <AnalyticsCard title="Facility Signals">
+            {facilitySignals.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">No facility data available.</Typography>
+            ) : facilitySignals.map((item) => (
+              <AnalyticsRow
+                key={item.facility}
+                primary={item.facility}
+                secondary="Reported case volume"
                 value={item.cases}
                 priority={getSeverity(item.cases)}
               />

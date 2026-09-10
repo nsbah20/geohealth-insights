@@ -16,6 +16,8 @@ const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malar
 const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"];
+const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
+const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 
 export default function AddCaseForm({ onCaseAdded }) {
   const [form, setForm] = useState({
@@ -27,6 +29,11 @@ export default function AddCaseForm({ onCaseAdded }) {
     date: "",
     status: "New",
     priority: "Medium",
+    ageGroup: "Unknown",
+    sex: "Unknown",
+    symptomOnsetDate: "",
+    facility: "",
+    suspectedExposure: "",
     reportSource: "Field report",
     notes: "",
   });
@@ -91,6 +98,11 @@ export default function AddCaseForm({ onCaseAdded }) {
         date: "",
         status: "New",
         priority: "Medium",
+        ageGroup: "Unknown",
+        sex: "Unknown",
+        symptomOnsetDate: "",
+        facility: "",
+        suspectedExposure: "",
         reportSource: "Field report",
         notes: "",
       }));
@@ -166,6 +178,55 @@ export default function AddCaseForm({ onCaseAdded }) {
       <Stack direction="row" spacing={1.2}>
         <TextField
           select
+          label="Age Group"
+          name="ageGroup"
+          value={form.ageGroup}
+          onChange={handleChange}
+          size="small"
+          fullWidth
+        >
+          {AGE_GROUP_OPTIONS.map((ageGroup) => (
+            <MenuItem key={ageGroup} value={ageGroup}>{ageGroup}</MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label="Sex"
+          name="sex"
+          value={form.sex}
+          onChange={handleChange}
+          size="small"
+          fullWidth
+        >
+          {SEX_OPTIONS.map((sex) => (
+            <MenuItem key={sex} value={sex}>{sex}</MenuItem>
+          ))}
+        </TextField>
+      </Stack>
+      <Stack direction="row" spacing={1.2}>
+        <TextField
+          label="Symptom Onset"
+          name="symptomOnsetDate"
+          type="date"
+          value={form.symptomOnsetDate}
+          onChange={handleChange}
+          size="small"
+          fullWidth
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          label="Facility"
+          name="facility"
+          value={form.facility}
+          onChange={handleChange}
+          size="small"
+          fullWidth
+          placeholder="Clinic, school, hospital"
+        />
+      </Stack>
+      <Stack direction="row" spacing={1.2}>
+        <TextField
+          select
           label="Status"
           name="status"
           value={form.status}
@@ -207,6 +268,18 @@ export default function AddCaseForm({ onCaseAdded }) {
           <MenuItem key={source} value={source}>{source}</MenuItem>
         ))}
       </TextField>
+      <TextField
+        label="Suspected Exposure"
+        name="suspectedExposure"
+        value={form.suspectedExposure}
+        onChange={handleChange}
+        size="small"
+        fullWidth
+        multiline
+        minRows={2}
+        inputProps={{ maxLength: 1000 }}
+        placeholder="Possible event, travel, facility exposure, or known contact"
+      />
       <Stack direction="row" spacing={1.2}>
         <TextField
           label="Latitude"

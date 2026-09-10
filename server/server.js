@@ -12,6 +12,8 @@ const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:3000";
 const allowedOrigins = CLIENT_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
 const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
 const CASE_PRIORITIES = ["Low", "Medium", "High"];
+const AGE_GROUPS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
+const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 mongoose.set("bufferCommands", false);
 
 // ── Security middleware ──────────────────────────────────────────────────────
@@ -66,6 +68,11 @@ const caseSchema = new mongoose.Schema(
       enum: CASE_PRIORITIES,
       default: "Medium",
     },
+    ageGroup: { type: String, enum: AGE_GROUPS, default: "Unknown" },
+    sex: { type: String, enum: SEX_OPTIONS, default: "Unknown" },
+    symptomOnsetDate: { type: String, default: "" },
+    facility: { type: String, default: "", trim: true },
+    suspectedExposure: { type: String, default: "", trim: true, maxlength: 1000 },
     reportSource: { type: String, default: "Field report", trim: true },
     notes: { type: String, default: "", trim: true, maxlength: 1000 },
     reviewHistory: [
@@ -74,6 +81,11 @@ const caseSchema = new mongoose.Schema(
         reviewer: { type: String, default: "System reviewer", trim: true },
         status: { type: String, enum: CASE_STATUSES },
         priority: { type: String, enum: CASE_PRIORITIES },
+        ageGroup: { type: String, enum: AGE_GROUPS },
+        sex: { type: String, enum: SEX_OPTIONS },
+        symptomOnsetDate: { type: String, default: "" },
+        facility: { type: String, default: "", trim: true },
+        suspectedExposure: { type: String, default: "", trim: true, maxlength: 1000 },
         reportSource: { type: String, trim: true },
         notes: { type: String, default: "", trim: true, maxlength: 1000 },
         changedFields: [{ type: String, trim: true }],
@@ -110,6 +122,11 @@ app.post(
     body("date").notEmpty().withMessage("Date is required"),
     body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
     body("priority").optional().isIn(CASE_PRIORITIES).withMessage("Invalid priority"),
+    body("ageGroup").optional().isIn(AGE_GROUPS).withMessage("Invalid age group"),
+    body("sex").optional().isIn(SEX_OPTIONS).withMessage("Invalid sex"),
+    body("symptomOnsetDate").optional().trim().escape(),
+    body("facility").optional().trim().escape(),
+    body("suspectedExposure").optional().trim().isLength({ max: 1000 }).withMessage("Suspected exposure must be 1000 characters or fewer").escape(),
     body("reportSource").optional().trim().escape(),
     body("notes").optional().trim().isLength({ max: 1000 }).withMessage("Notes must be 1000 characters or fewer").escape(),
   ],
@@ -123,7 +140,23 @@ app.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { disease, latitude, longitude, location, cases, date, status, priority, reportSource, notes } = req.body;
+    const {
+      disease,
+      latitude,
+      longitude,
+      location,
+      cases,
+      date,
+      status,
+      priority,
+      ageGroup,
+      sex,
+      symptomOnsetDate,
+      facility,
+      suspectedExposure,
+      reportSource,
+      notes,
+    } = req.body;
 
     try {
       const newCase = await Case.create({
@@ -135,6 +168,11 @@ app.post(
         date,
         status: status || "New",
         priority: priority || "Medium",
+        ageGroup: ageGroup || "Unknown",
+        sex: sex || "Unknown",
+        symptomOnsetDate: symptomOnsetDate || "",
+        facility: facility || "",
+        suspectedExposure: suspectedExposure || "",
         reportSource: reportSource || "Field report",
         notes: notes || "",
       });
@@ -151,6 +189,11 @@ app.patch(
   [
     body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
     body("priority").optional().isIn(CASE_PRIORITIES).withMessage("Invalid priority"),
+    body("ageGroup").optional().isIn(AGE_GROUPS).withMessage("Invalid age group"),
+    body("sex").optional().isIn(SEX_OPTIONS).withMessage("Invalid sex"),
+    body("symptomOnsetDate").optional().trim().escape(),
+    body("facility").optional().trim().escape(),
+    body("suspectedExposure").optional().trim().isLength({ max: 1000 }).withMessage("Suspected exposure must be 1000 characters or fewer").escape(),
     body("reportSource").optional().trim().escape(),
     body("notes").optional().trim().isLength({ max: 1000 }).withMessage("Notes must be 1000 characters or fewer").escape(),
   ],
@@ -168,7 +211,17 @@ app.patch(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const reviewFields = ["status", "priority", "reportSource", "notes"];
+    const reviewFields = [
+      "status",
+      "priority",
+      "ageGroup",
+      "sex",
+      "symptomOnsetDate",
+      "facility",
+      "suspectedExposure",
+      "reportSource",
+      "notes",
+    ];
 
     try {
       const caseRecord = await Case.findById(req.params.id);
@@ -193,6 +246,11 @@ app.patch(
           reviewer: "System reviewer",
           status: caseRecord.status,
           priority: caseRecord.priority,
+          ageGroup: caseRecord.ageGroup,
+          sex: caseRecord.sex,
+          symptomOnsetDate: caseRecord.symptomOnsetDate,
+          facility: caseRecord.facility,
+          suspectedExposure: caseRecord.suspectedExposure,
           reportSource: caseRecord.reportSource,
           notes: caseRecord.notes,
           changedFields,

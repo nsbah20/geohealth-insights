@@ -47,6 +47,8 @@ const STATUS_COLORS = {
 const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"];
+const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
+const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 
 function getPriority(item) {
   if (item.priority) return item.priority;
@@ -97,6 +99,11 @@ export default function CasesTable() {
   const [editForm, setEditForm] = useState({
     status: "New",
     priority: "Medium",
+    ageGroup: "Unknown",
+    sex: "Unknown",
+    symptomOnsetDate: "",
+    facility: "",
+    suspectedExposure: "",
     reportSource: "Field report",
     notes: "",
   });
@@ -120,6 +127,10 @@ export default function CasesTable() {
       c.location?.toLowerCase().includes(search.toLowerCase()) ||
       c.status?.toLowerCase().includes(search.toLowerCase()) ||
       c.priority?.toLowerCase().includes(search.toLowerCase()) ||
+      c.ageGroup?.toLowerCase().includes(search.toLowerCase()) ||
+      c.sex?.toLowerCase().includes(search.toLowerCase()) ||
+      c.facility?.toLowerCase().includes(search.toLowerCase()) ||
+      c.suspectedExposure?.toLowerCase().includes(search.toLowerCase()) ||
       c.reportSource?.toLowerCase().includes(search.toLowerCase()) ||
       c.notes?.toLowerCase().includes(search.toLowerCase())
   );
@@ -129,6 +140,11 @@ export default function CasesTable() {
     setEditForm({
       status: caseRecord.status || "New",
       priority: getPriority(caseRecord),
+      ageGroup: caseRecord.ageGroup || "Unknown",
+      sex: caseRecord.sex || "Unknown",
+      symptomOnsetDate: caseRecord.symptomOnsetDate || "",
+      facility: caseRecord.facility || "",
+      suspectedExposure: caseRecord.suspectedExposure || "",
       reportSource: caseRecord.reportSource || "Field report",
       notes: caseRecord.notes || "",
     });
@@ -196,7 +212,7 @@ export default function CasesTable() {
         </Box>
 
         <TextField
-          placeholder="Search by disease, location, status, source..."
+          placeholder="Search disease, location, status, facility..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           size="small"
@@ -237,9 +253,12 @@ export default function CasesTable() {
               <TableCell align="right">Cases</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Priority</TableCell>
+              <TableCell>Age/Sex</TableCell>
+              <TableCell>Facility</TableCell>
               <TableCell>Source</TableCell>
               <TableCell>Notes</TableCell>
               <TableCell>Report Date</TableCell>
+              <TableCell>Onset</TableCell>
               <TableCell>Last Reviewed</TableCell>
               <TableCell align="right">Lat</TableCell>
               <TableCell align="right">Lng</TableCell>
@@ -249,7 +268,7 @@ export default function CasesTable() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} align="center">
+                <TableCell colSpan={16} align="center">
                   No cases found.
                 </TableCell>
               </TableRow>
@@ -291,6 +310,15 @@ export default function CasesTable() {
                         sx={{ fontWeight: 800 }}
                       />
                     </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={700}>
+                        {c.ageGroup || "Unknown"}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {c.sex || "Unknown"}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{c.facility || "Not specified"}</TableCell>
                     <TableCell>{c.reportSource || "Field report"}</TableCell>
                     <TableCell sx={{ maxWidth: 280 }}>
                       <Typography variant="body2" color="text.secondary" noWrap>
@@ -298,6 +326,7 @@ export default function CasesTable() {
                       </Typography>
                     </TableCell>
                     <TableCell>{formatDate(c.date)}</TableCell>
+                    <TableCell>{c.symptomOnsetDate ? formatDate(c.symptomOnsetDate) : "Unknown"}</TableCell>
                     <TableCell>
                       {lastReview ? (
                         <Box>
@@ -354,6 +383,9 @@ export default function CasesTable() {
                 <Typography variant="body2" color="text.secondary">
                   {selectedCase.location} · {selectedCase.cases} reported cases · Reported {formatDate(selectedCase.date)}
                 </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {selectedCase.facility || "No facility specified"} · Onset {selectedCase.symptomOnsetDate ? formatDate(selectedCase.symptomOnsetDate) : "unknown"}
+                </Typography>
               </Box>
               {saveMessage && (
                 <Alert severity={saveMessage.type} sx={{ fontSize: "0.85rem" }}>
@@ -388,6 +420,54 @@ export default function CasesTable() {
                   ))}
                 </TextField>
               </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <TextField
+                  select
+                  label="Age Group"
+                  name="ageGroup"
+                  value={editForm.ageGroup}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                >
+                  {AGE_GROUP_OPTIONS.map((ageGroup) => (
+                    <MenuItem key={ageGroup} value={ageGroup}>{ageGroup}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Sex"
+                  name="sex"
+                  value={editForm.sex}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                >
+                  {SEX_OPTIONS.map((sex) => (
+                    <MenuItem key={sex} value={sex}>{sex}</MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <TextField
+                  label="Symptom Onset"
+                  name="symptomOnsetDate"
+                  type="date"
+                  value={editForm.symptomOnsetDate}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  label="Facility"
+                  name="facility"
+                  value={editForm.facility}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                />
+              </Stack>
               <TextField
                 select
                 label="Source"
@@ -401,6 +481,18 @@ export default function CasesTable() {
                   <MenuItem key={source} value={source}>{source}</MenuItem>
                 ))}
               </TextField>
+              <TextField
+                label="Suspected Exposure"
+                name="suspectedExposure"
+                value={editForm.suspectedExposure}
+                onChange={handleEditChange}
+                size="small"
+                fullWidth
+                multiline
+                minRows={2}
+                inputProps={{ maxLength: 1000 }}
+                placeholder="Possible event, travel, facility exposure, or known contact"
+              />
               <TextField
                 label="Review Notes"
                 name="notes"
@@ -440,6 +532,9 @@ export default function CasesTable() {
                         </Stack>
                         <Typography variant="caption" color="text.secondary" display="block">
                           Priority: {entry.priority || "Unknown"} · Source: {entry.reportSource || "Field report"}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Age: {entry.ageGroup || "Unknown"} · Sex: {entry.sex || "Unknown"} · Facility: {entry.facility || "Not specified"}
                         </Typography>
                         {entry.changedFields?.length > 0 && (
                           <Typography variant="caption" color="text.secondary" display="block">
