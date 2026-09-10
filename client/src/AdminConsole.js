@@ -29,6 +29,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { authHeaders, clearAdminToken, getAdminToken, setAdminToken } from "./auth";
+import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -62,7 +63,7 @@ const baseReadinessItems = [
   { label: "Audit activity log", state: "Active", tone: "success" },
   { label: "CSV/PDF reporting", state: "Active", tone: "success" },
   { label: "Admin access gate", state: "Active", tone: "success" },
-  { label: "Organization settings", state: "Next build", tone: "warning" },
+  { label: "Organization settings", state: "Active", tone: "success" },
 ];
 
 const governanceItems = [
@@ -86,6 +87,7 @@ function formatDateTime(value) {
 function formatAction(action) {
   if (action === "admin_login") return "Admin sign-in";
   if (action === "case_review_updated") return "Case review updated";
+  if (action === "organization_settings_updated") return "Organization settings updated";
   return String(action || "Activity").replace(/_/g, " ");
 }
 
@@ -436,7 +438,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            The first access gate is active. Next we can replace this shared code with individual institutional accounts and roles.
+            Organization settings are now active. Next we can replace the shared code with individual institutional accounts and roles.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -584,6 +586,19 @@ export default function AdminConsole() {
               </Table>
             </TableContainer>
           )}
+        </AdminPanel>
+      </Box>
+
+      <Box sx={{ mt: 2 }}>
+        <AdminPanel title="Organization Settings" icon={<AdminPanelSettingsIcon />}>
+          <OrganizationSettingsPanel
+            authUser={authUser}
+            onUnauthorized={() => {
+              setAuthUser(null);
+              setAuthMessage({ type: "warning", text: "Admin session expired. Sign in again to continue." });
+            }}
+            onSaved={() => fetchAuditLogs()}
+          />
         </AdminPanel>
       </Box>
     </Box>

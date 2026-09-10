@@ -15,6 +15,18 @@ const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"]
 const CASE_PRIORITIES = ["Low", "Medium", "High"];
 const AGE_GROUPS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
+const DEFAULT_ORGANIZATION_SETTINGS = {
+  organizationName: "GeoHealth Insights",
+  defaultRegion: "Madison, WI",
+  surveillanceScope: "Institutional disease surveillance and geospatial reporting",
+  contactEmail: "",
+  retentionDays: 365,
+  lowPriorityMaxCases: 19,
+  mediumPriorityMaxCases: 49,
+  diseaseList: ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"],
+  facilityList: ["Hospital", "Clinic", "Laboratory", "School health office", "Community reporting line"],
+  reportSourceList: ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"],
+};
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE;
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.MONGODB_URI || "geohealth-dev-session-secret";
@@ -175,12 +187,37 @@ const auditLogSchema = new mongoose.Schema(
 );
 const AuditLog = mongoose.model("AuditLog", auditLogSchema);
 
+const organizationSettingsSchema = new mongoose.Schema(
+  {
+    organizationName: { type: String, required: true, trim: true },
+    defaultRegion: { type: String, required: true, trim: true },
+    surveillanceScope: { type: String, required: true, trim: true, maxlength: 300 },
+    contactEmail: { type: String, default: "", trim: true },
+    retentionDays: { type: Number, default: 365, min: 30, max: 3650 },
+    lowPriorityMaxCases: { type: Number, default: 19, min: 1, max: 100000 },
+    mediumPriorityMaxCases: { type: Number, default: 49, min: 1, max: 100000 },
+    diseaseList: [{ type: String, trim: true }],
+    facilityList: [{ type: String, trim: true }],
+    reportSourceList: [{ type: String, trim: true }],
+  },
+  { timestamps: true }
+);
+const OrganizationSettings = mongoose.model("OrganizationSettings", organizationSettingsSchema);
+
 async function writeAuditLog(entry) {
   try {
     await AuditLog.create(entry);
   } catch (err) {
     console.error("Audit log write failed:", err.message);
   }
+}
+
+async function getOrganizationSettings() {
+  let settings = await OrganizationSettings.findOne();
+  if (!settings) {
+    settings = await OrganizationSettings.create(DEFAULT_ORGANIZATION_SETTINGS);
+  }
+  return settings;
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -264,6 +301,99 @@ app.get("/api/admin/audit-logs", requireReviewerSession, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch audit logs" });
   }
 });
+
+app.get("/api/admin/settings", requireReviewerSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const settings = await getOrganizationSettings();
+    res.json(settings);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch organization settings" });
+  }
+});
+
+app.patch(
+  "/api/admin/settings",
+  requireReviewerSession,
+  [
+    body("organizationName").notEmpty().withMessage("Organization name is required").trim().escape(),
+    body("defaultRegion").notEmpty().withMessage("Default region is required").trim().escape(),
+    body("surveillanceScope").notEmpty().withMessage("Surveillance scope is required").trim().isLength({ max: 300 }).withMessage("Surveillance scope must be 300 characters or fewer").escape(),
+    body("contactEmail").optional({ checkFalsy: true }).isEmail().withMessage("Contact email must be valid").normalizeEmail(),
+    body("retentionDays").isInt({ min: 30, max: 3650 }).withMessage("Retention days must be between 30 and 3650"),
+    body("lowPriorityMaxCases").isInt({ min: 1, max: 100000 }).withMessage("Low priority threshold must be a positive number"),
+    body("mediumPriorityMaxCases").isInt({ min: 1, max: 100000 }).withMessage("Medium priority threshold must be a positive number"),
+    body("diseaseList").isArray({ min: 1 }).withMessage("At least one disease is required"),
+    body("diseaseList.*").notEmpty().withMessage("Disease names cannot be empty").trim().escape(),
+    body("facilityList").isArray({ min: 1 }).withMessage("At least one facility is required"),
+    body("facilityList.*").notEmpty().withMessage("Facility names cannot be empty").trim().escape(),
+    body("reportSourceList").isArray({ min: 1 }).withMessage("At least one report source is required"),
+    body("reportSourceList.*").notEmpty().withMessage("Report source names cannot be empty").trim().escape(),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    if (Number(req.body.lowPriorityMaxCases) >= Number(req.body.mediumPriorityMaxCases)) {
+      return res.status(400).json({ error: "Medium priority threshold must be higher than the low priority threshold." });
+    }
+
+    const settingsFields = [
+      "organizationName",
+      "defaultRegion",
+      "surveillanceScope",
+      "contactEmail",
+      "retentionDays",
+      "lowPriorityMaxCases",
+      "mediumPriorityMaxCases",
+      "diseaseList",
+      "facilityList",
+      "reportSourceList",
+    ];
+
+    try {
+      const settings = await getOrganizationSettings();
+      const changedFields = settingsFields.filter((field) => {
+        const before = JSON.stringify(settings[field] ?? "");
+        const after = JSON.stringify(req.body[field] ?? "");
+        return before !== after;
+      });
+
+      settingsFields.forEach((field) => {
+        settings[field] = req.body[field];
+      });
+
+      const updatedSettings = await settings.save();
+      if (changedFields.length > 0) {
+        writeAuditLog({
+          action: "organization_settings_updated",
+          actor: req.user.name || "Admin",
+          role: req.user.role || "Admin",
+          changedFields,
+          metadata: {
+            organizationName: updatedSettings.organizationName,
+            defaultRegion: updatedSettings.defaultRegion,
+          },
+        });
+      }
+
+      res.json(updatedSettings);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update organization settings" });
+    }
+  }
+);
 
 app.get("/api/health-data", async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
