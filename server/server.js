@@ -160,6 +160,29 @@ const caseSchema = new mongoose.Schema(
 );
 const Case = mongoose.model("Case", caseSchema);
 
+const auditLogSchema = new mongoose.Schema(
+  {
+    action: { type: String, required: true, trim: true },
+    actor: { type: String, default: "System", trim: true },
+    role: { type: String, default: "System", trim: true },
+    caseId: { type: mongoose.Schema.Types.ObjectId, ref: "Case" },
+    caseDisease: { type: String, default: "", trim: true },
+    caseLocation: { type: String, default: "", trim: true },
+    changedFields: [{ type: String, trim: true }],
+    metadata: { type: Object, default: {} },
+  },
+  { timestamps: true }
+);
+const AuditLog = mongoose.model("AuditLog", auditLogSchema);
+
+async function writeAuditLog(entry) {
+  try {
+    await AuditLog.create(entry);
+  } catch (err) {
+    console.error("Audit log write failed:", err.message);
+  }
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.get("/api/auth/session", (req, res) => {
   const session = readSessionToken(req);
@@ -209,6 +232,15 @@ app.post(
       role: "Admin",
     };
 
+    writeAuditLog({
+      action: "admin_login",
+      actor: user.name,
+      role: user.role,
+      metadata: {
+        source: "admin_console",
+      },
+    });
+
     res.json({
       token: createSessionToken(user),
       user: {
@@ -218,6 +250,20 @@ app.post(
     });
   }
 );
+
+app.get("/api/admin/audit-logs", requireReviewerSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const logs = await AuditLog.find().sort({ createdAt: -1 }).limit(25);
+    res.json(logs);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch audit logs" });
+  }
+});
 
 app.get("/api/health-data", async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
@@ -381,6 +427,21 @@ app.patch(
       }
 
       const updatedCase = await caseRecord.save();
+      if (changedFields.length > 0) {
+        writeAuditLog({
+          action: "case_review_updated",
+          actor: req.user.name || "Reviewer",
+          role: req.user.role || "Reviewer",
+          caseId: caseRecord._id,
+          caseDisease: caseRecord.disease,
+          caseLocation: caseRecord.location,
+          changedFields,
+          metadata: {
+            status: caseRecord.status,
+            priority: caseRecord.priority,
+          },
+        });
+      }
       res.json(updatedCase);
     } catch (err) {
       console.error(err);

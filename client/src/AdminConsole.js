@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   Alert,
@@ -10,6 +10,12 @@ import {
   Divider,
   LinearProgress,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
 } from "@mui/material";
@@ -53,6 +59,7 @@ const baseReadinessItems = [
   { label: "Live database connection", state: "Active", tone: "success" },
   { label: "Case review workflow", state: "Active", tone: "success" },
   { label: "Review history trail", state: "Active", tone: "success" },
+  { label: "Audit activity log", state: "Active", tone: "success" },
   { label: "CSV/PDF reporting", state: "Active", tone: "success" },
   { label: "Admin access gate", state: "Active", tone: "success" },
   { label: "Organization settings", state: "Next build", tone: "warning" },
@@ -61,9 +68,26 @@ const baseReadinessItems = [
 const governanceItems = [
   "Define who can submit, review, approve, export, and administer records.",
   "Require authenticated users before real institutional health data is entered.",
-  "Add audit logs for every case edit, export, and administrative setting change.",
+  "Expand audit logs to include exports and administrative setting changes.",
   "Prepare privacy notices and data retention rules before any production rollout.",
 ];
+
+function formatDateTime(value) {
+  if (!value) return "Unknown";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatAction(action) {
+  if (action === "admin_login") return "Admin sign-in";
+  if (action === "case_review_updated") return "Case review updated";
+  return String(action || "Activity").replace(/_/g, " ");
+}
 
 function StatusPill({ label, color = "default" }) {
   return <Chip label={label} color={color} size="small" sx={{ fontWeight: 900 }} />;
@@ -154,6 +178,8 @@ export default function AdminConsole() {
   const [authUser, setAuthUser] = useState(null);
   const [authMessage, setAuthMessage] = useState(null);
   const [signingIn, setSigningIn] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditError, setAuditError] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -191,6 +217,31 @@ export default function AdminConsole() {
       });
   }, []);
 
+  const fetchAuditLogs = useCallback(async (token = getAdminToken()) => {
+    if (!token) {
+      setAuditLogs([]);
+      return;
+    }
+
+    try {
+      const res = await axios.get(`${API_URL}/api/admin/audit-logs`, { headers: authHeaders(token) });
+      setAuditLogs(res.data);
+      setAuditError(null);
+    } catch (err) {
+      setAuditLogs([]);
+      setAuditError(err.response?.data?.error || "Unable to load audit logs.");
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        setAuthUser(null);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authUser) fetchAuditLogs();
+    else setAuditLogs([]);
+  }, [authUser, fetchAuditLogs]);
+
   const handleLogin = async (event) => {
     event.preventDefault();
     setSigningIn(true);
@@ -202,6 +253,7 @@ export default function AdminConsole() {
       setAuthUser(res.data.user);
       setAccessCode("");
       setAuthMessage({ type: "success", text: "Admin session active. Case review saving is now unlocked." });
+      fetchAuditLogs(res.data.token);
     } catch (err) {
       const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to sign in.";
       setAuthMessage({ type: "error", text });
@@ -394,17 +446,24 @@ export default function AdminConsole() {
             <Button variant="outlined" disabled sx={{ fontWeight: 900 }}>
               Configure Roles
             </Button>
-            <Button variant="outlined" disabled sx={{ fontWeight: 900 }}>
+            <Button variant="outlined" onClick={() => fetchAuditLogs()} disabled={!authUser} sx={{ fontWeight: 900 }}>
               Audit Logs
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            Buttons stay disabled until full user and role management is connected.
+            User and role buttons stay disabled until full account management is connected.
           </Typography>
         </AdminPanel>
       </Box>
 
-      <Box sx={{ mt: 2 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", lg: "0.8fr 1.2fr" },
+          gap: 2,
+          mt: 2,
+        }}
+      >
         <AdminPanel title="Admin Access" icon={<SecurityIcon />}>
           {authMessage && (
             <Alert severity={authMessage.type} sx={{ mb: 2 }}>
@@ -457,6 +516,73 @@ export default function AdminConsole() {
                 Set ADMIN_ACCESS_CODE on Render for production. Local development can use the temporary dev code.
               </Typography>
             </Box>
+          )}
+        </AdminPanel>
+
+        <AdminPanel title="Audit Logs" icon={<FactCheckIcon />}>
+          {!authUser ? (
+            <Alert severity="warning">
+              Sign in with the admin access code to view audit activity.
+            </Alert>
+          ) : auditError ? (
+            <Alert severity="error">{auditError}</Alert>
+          ) : auditLogs.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No audit activity has been recorded yet.
+            </Typography>
+          ) : (
+            <TableContainer sx={{ maxHeight: 360 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow sx={{ "& th": { fontWeight: 900, bgcolor: "#082f2f", color: "white" } }}>
+                    <TableCell>Time</TableCell>
+                    <TableCell>Action</TableCell>
+                    <TableCell>Actor</TableCell>
+                    <TableCell>Case</TableCell>
+                    <TableCell>Changes</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {auditLogs.map((log) => (
+                    <TableRow key={log._id} hover>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDateTime(log.createdAt)}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={800}>
+                          {formatAction(log.action)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{log.actor || "System"}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {log.role || "System"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        {log.caseDisease ? (
+                          <Box>
+                            <Typography variant="body2" fontWeight={800}>
+                              {log.caseDisease}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {log.caseLocation || "Unknown location"}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Not case-specific
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">
+                          {log.changedFields?.length ? log.changedFields.join(", ") : "Session event"}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
         </AdminPanel>
       </Box>
