@@ -8,6 +8,8 @@ import {
   CircularProgress,
   MenuItem,
   Stack,
+  Divider,
+  Typography,
 } from "@mui/material";
 import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
 
@@ -175,6 +177,10 @@ export default function AddCaseForm({ onCaseAdded }) {
         fullWidth
         inputProps={{ min: 1 }}
       />
+      <Divider sx={{ my: 0.5 }} />
+      <Typography variant="subtitle2" fontWeight={900} color="#102a2c" sx={{ textTransform: "uppercase" }}>
+        Epidemiology Details
+      </Typography>
       <Stack direction="row" spacing={1.2}>
         <TextField
           select
@@ -280,6 +286,10 @@ export default function AddCaseForm({ onCaseAdded }) {
         inputProps={{ maxLength: 1000 }}
         placeholder="Possible event, travel, facility exposure, or known contact"
       />
+      <Divider sx={{ my: 0.5 }} />
+      <Typography variant="subtitle2" fontWeight={900} color="#102a2c" sx={{ textTransform: "uppercase" }}>
+        Location and Report Date
+      </Typography>
       <Stack direction="row" spacing={1.2}>
         <TextField
           label="Latitude"

@@ -859,6 +859,9 @@ function MapView() {
               <MenuItem key={priority} value={priority}>{priority}</MenuItem>
             ))}
           </TextField>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 900, textTransform: "uppercase" }}>
+            Epidemiology Filters
+          </Typography>
           <Stack direction="row" spacing={1.2}>
             <TextField
               select

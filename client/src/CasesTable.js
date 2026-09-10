@@ -241,10 +241,10 @@ export default function CasesTable() {
           borderRadius: 2,
           border: "1px solid rgba(15, 23, 42, 0.08)",
           boxShadow: "0 22px 55px rgba(15, 23, 42, 0.10)",
-          overflow: "hidden",
+          overflowX: "auto",
         }}
       >
-        <Table size="small">
+        <Table size="small" sx={{ minWidth: 1720 }}>
           <TableHead>
             <TableRow sx={{ "& th": { fontWeight: 900, bgcolor: "#082f2f", color: "white", py: 1.5 } }}>
               <TableCell>#</TableCell>
