@@ -27,6 +27,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
 import demoData from "./demoData";
+import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
@@ -109,6 +110,7 @@ export default function CasesTable() {
   });
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
+  const [adminSession, setAdminSession] = useState(null);
 
   useEffect(() => {
     axios
@@ -119,6 +121,19 @@ export default function CasesTable() {
         setError(null);
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    axios
+      .get(`${API_URL}/api/auth/session`, { headers: authHeaders(token) })
+      .then((res) => setAdminSession(res.data.user))
+      .catch(() => {
+        clearAdminToken();
+        setAdminSession(null);
+      });
   }, []);
 
   const filtered = cases.filter(
@@ -163,15 +178,26 @@ export default function CasesTable() {
 
   const saveReview = async () => {
     if (!selectedCase?._id || String(selectedCase._id).startsWith("demo-")) return;
+    const token = getAdminToken();
+    if (!token) {
+      setSaveMessage({ type: "warning", text: "Admin access is required before saving case reviews. Open the Admin tab and sign in first." });
+      return;
+    }
+
     setSaving(true);
     setSaveMessage(null);
 
     try {
-      const res = await axios.patch(`${API_URL}/api/cases/${selectedCase._id}`, editForm);
+      const res = await axios.patch(`${API_URL}/api/cases/${selectedCase._id}`, editForm, { headers: authHeaders(token) });
       setCases((current) => current.map((item) => (item._id === selectedCase._id ? res.data : item)));
       setSelectedCase(res.data);
       setSaveMessage({ type: "success", text: "Case review updated." });
+      setAdminSession((current) => current || { name: "GeoHealth Administrator", role: "Admin" });
     } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        setAdminSession(null);
+      }
       const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to update this case.";
       setSaveMessage({ type: "error", text });
     } finally {
@@ -211,28 +237,42 @@ export default function CasesTable() {
           </Typography>
         </Box>
 
-        <TextField
-          placeholder="Search disease, location, status, facility..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          size="small"
-          sx={{
-            width: { xs: "100%", md: 360 },
-            "& .MuiOutlinedInput-root": {
-              borderRadius: 2,
-              bgcolor: "white",
-              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-            },
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
+        <Stack spacing={1} alignItems={{ xs: "stretch", md: "flex-end" }}>
+          <TextField
+            placeholder="Search disease, location, status, facility..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            size="small"
+            sx={{
+              width: { xs: "100%", md: 360 },
+              "& .MuiOutlinedInput-root": {
+                borderRadius: 2,
+                bgcolor: "white",
+                boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+              },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Chip
+            label={adminSession ? `${adminSession.role} session active` : "Review saving locked"}
+            color={adminSession ? "success" : "warning"}
+            size="small"
+            sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", md: "flex-end" } }}
+          />
+        </Stack>
       </Stack>
+
+      {!adminSession && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Case review updates are protected now. Sign in from the Admin tab before saving review changes.
+        </Alert>
+      )}
 
       <TableContainer
         component={Paper}
@@ -564,7 +604,7 @@ export default function CasesTable() {
           </Button>
           <Button
             onClick={saveReview}
-            disabled={saving || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
+            disabled={saving || !adminSession || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
             variant="contained"
             sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
           >

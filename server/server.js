@@ -5,6 +5,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { body, validationResult } = require("express-validator");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,6 +15,9 @@ const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"]
 const CASE_PRIORITIES = ["Low", "Medium", "High"];
 const AGE_GROUPS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE;
+const SESSION_SECRET = process.env.SESSION_SECRET || process.env.MONGODB_URI || "geohealth-dev-session-secret";
 mongoose.set("bufferCommands", false);
 
 // ── Security middleware ──────────────────────────────────────────────────────
@@ -27,7 +31,7 @@ app.use(
       return callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PATCH"],
-    allowedHeaders: ["Content-Type"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json({ limit: "10kb" }));
@@ -40,6 +44,66 @@ const limiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
 });
 app.use("/api", limiter);
+
+// ── Lightweight reviewer sessions ───────────────────────────────────────────
+function base64UrlEncode(value) {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function signPayload(payload) {
+  return crypto
+    .createHmac("sha256", SESSION_SECRET)
+    .update(payload)
+    .digest("base64url");
+}
+
+function createSessionToken(user) {
+  const payload = base64UrlEncode({
+    sub: user.id,
+    name: user.name,
+    role: user.role,
+    exp: Date.now() + SESSION_TTL_MS,
+  });
+  return `${payload}.${signPayload(payload)}`;
+}
+
+function readSessionToken(req) {
+  const header = req.get("authorization") || "";
+  const [scheme, token] = header.split(" ");
+  if (scheme !== "Bearer" || !token) return null;
+
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+
+  const expectedSignature = signPayload(payload);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (signatureBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!session.exp || session.exp < Date.now()) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function requireReviewerSession(req, res, next) {
+  if (!ADMIN_ACCESS_CODE && process.env.NODE_ENV === "production") {
+    return res.status(503).json({ error: "Admin access is not configured yet." });
+  }
+
+  const session = readSessionToken(req);
+  if (!session || !["Admin", "Reviewer"].includes(session.role)) {
+    return res.status(401).json({ error: "Reviewer access is required." });
+  }
+
+  req.user = session;
+  next();
+}
 
 // ── MongoDB connection ───────────────────────────────────────────────────────
 mongoose
@@ -97,6 +161,64 @@ const caseSchema = new mongoose.Schema(
 const Case = mongoose.model("Case", caseSchema);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
+app.get("/api/auth/session", (req, res) => {
+  const session = readSessionToken(req);
+  if (!session) {
+    return res.status(401).json({ authenticated: false });
+  }
+  res.json({
+    authenticated: true,
+    user: {
+      name: session.name,
+      role: session.role,
+      expiresAt: new Date(session.exp).toISOString(),
+    },
+  });
+});
+
+app.post(
+  "/api/auth/login",
+  [
+    body("accessCode").notEmpty().withMessage("Access code is required").trim(),
+  ],
+  (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    if (!ADMIN_ACCESS_CODE && process.env.NODE_ENV === "production") {
+      return res.status(503).json({ error: "Admin access is not configured yet." });
+    }
+
+    const expectedCode = ADMIN_ACCESS_CODE || "dev-admin";
+    const submittedCode = req.body.accessCode;
+    const expectedBuffer = Buffer.from(expectedCode);
+    const submittedBuffer = Buffer.from(submittedCode);
+    const isValid =
+      expectedBuffer.length === submittedBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, submittedBuffer);
+
+    if (!isValid) {
+      return res.status(401).json({ error: "Invalid admin access code." });
+    }
+
+    const user = {
+      id: "geohealth-admin",
+      name: "GeoHealth Administrator",
+      role: "Admin",
+    };
+
+    res.json({
+      token: createSessionToken(user),
+      user: {
+        name: user.name,
+        role: user.role,
+      },
+    });
+  }
+);
+
 app.get("/api/health-data", async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
@@ -186,6 +308,7 @@ app.post(
 
 app.patch(
   "/api/cases/:id",
+  requireReviewerSession,
   [
     body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
     body("priority").optional().isIn(CASE_PRIORITIES).withMessage("Invalid priority"),

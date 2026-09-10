@@ -10,6 +10,7 @@ import {
   Divider,
   LinearProgress,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
@@ -19,6 +20,9 @@ import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import RuleIcon from "@mui/icons-material/Rule";
 import SecurityIcon from "@mui/icons-material/Security";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import LoginIcon from "@mui/icons-material/Login";
+import LogoutIcon from "@mui/icons-material/Logout";
+import { authHeaders, clearAdminToken, getAdminToken, setAdminToken } from "./auth";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -45,12 +49,12 @@ const rolePlan = [
   },
 ];
 
-const readinessItems = [
+const baseReadinessItems = [
   { label: "Live database connection", state: "Active", tone: "success" },
   { label: "Case review workflow", state: "Active", tone: "success" },
   { label: "Review history trail", state: "Active", tone: "success" },
   { label: "CSV/PDF reporting", state: "Active", tone: "success" },
-  { label: "Role-based login", state: "Next build", tone: "warning" },
+  { label: "Admin access gate", state: "Active", tone: "success" },
   { label: "Organization settings", state: "Next build", tone: "warning" },
 ];
 
@@ -146,6 +150,10 @@ function AdminPanel({ title, icon, children }) {
 export default function AdminConsole() {
   const [apiHealth, setApiHealth] = useState({ status: "Checking", color: "warning" });
   const [caseCount, setCaseCount] = useState(null);
+  const [accessCode, setAccessCode] = useState("");
+  const [authUser, setAuthUser] = useState(null);
+  const [authMessage, setAuthMessage] = useState(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -170,10 +178,57 @@ export default function AdminConsole() {
     };
   }, []);
 
-  const readinessScore = useMemo(() => {
-    const complete = readinessItems.filter((item) => item.tone === "success").length;
-    return Math.round((complete / readinessItems.length) * 100);
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    axios
+      .get(`${API_URL}/api/auth/session`, { headers: authHeaders(token) })
+      .then((res) => setAuthUser(res.data.user))
+      .catch(() => {
+        clearAdminToken();
+        setAuthUser(null);
+      });
   }, []);
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setSigningIn(true);
+    setAuthMessage(null);
+
+    try {
+      const res = await axios.post(`${API_URL}/api/auth/login`, { accessCode });
+      setAdminToken(res.data.token);
+      setAuthUser(res.data.user);
+      setAccessCode("");
+      setAuthMessage({ type: "success", text: "Admin session active. Case review saving is now unlocked." });
+    } catch (err) {
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to sign in.";
+      setAuthMessage({ type: "error", text });
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearAdminToken();
+    setAuthUser(null);
+    setAuthMessage({ type: "info", text: "Admin session ended." });
+  };
+
+  const readinessItems = useMemo(
+    () => baseReadinessItems.map((item) => (
+      item.label === "Admin access gate" && !authUser
+        ? { ...item, state: "Configured", tone: "info" }
+        : item
+    )),
+    [authUser]
+  );
+
+  const readinessScore = useMemo(() => {
+    const complete = readinessItems.filter((item) => item.tone === "success" || item.tone === "info").length;
+    return Math.round((complete / readinessItems.length) * 100);
+  }, [readinessItems]);
 
   return (
     <Box sx={{ minHeight: "calc(100vh - 72px)", bgcolor: "#eef4f2", p: { xs: 2, md: 3 } }}>
@@ -194,7 +249,7 @@ export default function AdminConsole() {
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
           <StatusPill label={`API ${apiHealth.status}`} color={apiHealth.color} />
-          <StatusPill label="Security phase pending" color="warning" />
+          <StatusPill label={authUser ? "Admin session active" : "Admin access locked"} color={authUser ? "success" : "warning"} />
         </Stack>
       </Stack>
 
@@ -230,9 +285,9 @@ export default function AdminConsole() {
         <AdminMetric
           icon={<SecurityIcon />}
           label="Access"
-          value="Planned"
-          helper="Authentication comes next"
-          color="#dc2626"
+          value={authUser ? "Protected" : "Locked"}
+          helper={authUser ? `${authUser.role} session active` : "Sign in required for reviews"}
+          color={authUser ? "#0f766e" : "#dc2626"}
         />
       </Box>
 
@@ -329,7 +384,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            This console is a planning and monitoring layer. It does not protect data yet; real login and permissions should be the next security build.
+            The first access gate is active. Next we can replace this shared code with individual institutional accounts and roles.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -344,8 +399,65 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            Buttons are intentionally disabled until authentication is connected.
+            Buttons stay disabled until full user and role management is connected.
           </Typography>
+        </AdminPanel>
+      </Box>
+
+      <Box sx={{ mt: 2 }}>
+        <AdminPanel title="Admin Access" icon={<SecurityIcon />}>
+          {authMessage && (
+            <Alert severity={authMessage.type} sx={{ mb: 2 }}>
+              {authMessage.text}
+            </Alert>
+          )}
+
+          {authUser ? (
+            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2}>
+              <Box>
+                <Typography variant="body1" fontWeight={900} color="#102a2c">
+                  {authUser.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Role: {authUser.role}. This session can save case review updates.
+                </Typography>
+              </Box>
+              <Button
+                variant="outlined"
+                color="inherit"
+                startIcon={<LogoutIcon />}
+                onClick={handleLogout}
+                sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", sm: "center" } }}
+              >
+                Sign Out
+              </Button>
+            </Stack>
+          ) : (
+            <Box component="form" onSubmit={handleLogin}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ xs: "stretch", sm: "center" }}>
+                <TextField
+                  label="Admin Access Code"
+                  type="password"
+                  value={accessCode}
+                  onChange={(event) => setAccessCode(event.target.value)}
+                  size="small"
+                  sx={{ maxWidth: { sm: 360 }, flex: 1 }}
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  startIcon={<LoginIcon />}
+                  disabled={signingIn || !accessCode.trim()}
+                  sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
+                >
+                  {signingIn ? "Signing In..." : "Sign In"}
+                </Button>
+              </Stack>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                Set ADMIN_ACCESS_CODE on Render for production. Local development can use the temporary dev code.
+              </Typography>
+            </Box>
+          )}
         </AdminPanel>
       </Box>
     </Box>
