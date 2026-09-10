@@ -34,8 +34,10 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import PrintIcon from "@mui/icons-material/Print";
 import ZoomOutMapIcon from "@mui/icons-material/ZoomOutMap";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import AddCaseForm from "./AddCaseForm";
 import CasesTable from "./CasesTable";
+import AdminConsole from "./AdminConsole";
 import demoData from "./demoData";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
@@ -1313,6 +1315,15 @@ function NavBar() {
         >
           Cases
         </Button>
+        <Button
+          component={Link}
+          to="/admin"
+          color="inherit"
+          startIcon={<AdminPanelSettingsIcon />}
+          sx={{ fontWeight: location.pathname === "/admin" ? 800 : 500, textDecoration: "none", borderRadius: 2 }}
+        >
+          Admin
+        </Button>
       </Toolbar>
     </AppBar>
   );
@@ -1325,6 +1336,7 @@ function App() {
       <Routes>
         <Route path="/" element={<MapView />} />
         <Route path="/cases" element={<CasesTable />} />
+        <Route path="/admin" element={<AdminConsole />} />
       </Routes>
     </BrowserRouter>
   );
