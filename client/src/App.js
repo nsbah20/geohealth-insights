@@ -324,13 +324,18 @@ function CommandMetric({ label, value, detail, accent, icon, onClick }) {
 
 function AnalyticsRow({ primary, secondary, value, priority }) {
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5}>
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        columnGap: 1.5,
+        rowGap: 0.25,
+        alignItems: "start",
+      }}
+    >
       <Box sx={{ minWidth: 0 }}>
         <Typography variant="body2" fontWeight={800} color="#102a2c" noWrap>
           {primary}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" noWrap>
-          {secondary}
         </Typography>
       </Box>
       <Chip
@@ -341,9 +346,17 @@ function AnalyticsRow({ primary, secondary, value, priority }) {
           bgcolor: getPriorityColor(priority),
           color: "white",
           fontWeight: 900,
+          justifySelf: "end",
         }}
       />
-    </Stack>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ gridColumn: "1 / -1", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+      >
+        {secondary}
+      </Typography>
+    </Box>
   );
 }
 
