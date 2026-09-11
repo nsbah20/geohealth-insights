@@ -51,14 +51,16 @@ const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 
-function getSeverity(count) {
-  if (count >= 50) return "High";
-  if (count >= 20) return "Medium";
-  return "Low";
+function getSeverity(count, settings) {
+  const lowMax = Number(settings?.lowPriorityMaxCases) || 19;
+  const mediumMax = Number(settings?.mediumPriorityMaxCases) || 49;
+  if (count <= lowMax) return "Low";
+  if (count <= mediumMax) return "Medium";
+  return "High";
 }
 
-function getPriority(item) {
-  return item.priority || getSeverity(item.cases);
+function getPriority(item, settings) {
+  return item.priority || getSeverity(item.cases, settings);
 }
 
 function getPriorityColor(priority) {
@@ -369,7 +371,7 @@ function AnalyticsRow({ primary, secondary, value, priority }) {
   );
 }
 
-function TrendChart({ rows }) {
+function TrendChart({ rows, settings }) {
   const trendData = useMemo(() => {
     const byDate = rows.reduce((acc, item) => {
       acc[item.date] = (acc[item.date] || 0) + item.cases;
@@ -395,7 +397,7 @@ function TrendChart({ rows }) {
               sx={{
                 height: `${Math.max(12, (item.cases / maxCases) * 108)}px`,
                 borderRadius: "8px 8px 3px 3px",
-                bgcolor: getPriorityColor(getSeverity(item.cases)),
+                bgcolor: getPriorityColor(getSeverity(item.cases, settings)),
                 boxShadow: "inset 0 -10px 18px rgba(255,255,255,0.18)",
               }}
             />
@@ -416,6 +418,7 @@ function MapView() {
   const [loadingData, setLoadingData] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [mapReady, setMapReady] = useState(false);
+  const [organizationSettings, setOrganizationSettings] = useState(null);
   const [filters, setFilters] = useState({
     disease: "All",
     status: "All",
@@ -441,7 +444,7 @@ function MapView() {
 
   const filteredData = useMemo(() => data.filter((item) => {
     const status = item.status || "New";
-    const priority = getPriority(item);
+    const priority = getPriority(item, organizationSettings);
     const caseDate = parseDateValue(item.date);
     const startsAfter = filters.startDate ? caseDate >= parseDateValue(filters.startDate) : true;
     const endsBefore = filters.endDate ? caseDate <= parseDateValue(filters.endDate) : true;
@@ -451,18 +454,23 @@ function MapView() {
     const ageGroupMatch = filters.ageGroup === "All" || (item.ageGroup || "Unknown") === filters.ageGroup;
     const sexMatch = filters.sex === "All" || (item.sex || "Unknown") === filters.sex;
     return startsAfter && endsBefore && diseaseMatch && statusMatch && priorityMatch && ageGroupMatch && sexMatch;
-  }), [data, filters]);
+  }), [data, filters, organizationSettings]);
 
   const diseaseOptions = useMemo(
-    () => [...new Set([...DISEASE_OPTIONS, ...data.map((item) => item.disease).filter(Boolean)])],
-    [data]
+    () => [
+      ...new Set([
+        ...(organizationSettings?.diseaseList?.length ? organizationSettings.diseaseList : DISEASE_OPTIONS),
+        ...data.map((item) => item.disease).filter(Boolean),
+      ]),
+    ],
+    [data, organizationSettings]
   );
 
   const totalReported = filteredData.reduce((sum, d) => sum + d.cases, 0);
   const newRecords = filteredData.filter((item) => (item.status || "New") === "New");
   const underReviewRecords = filteredData.filter((item) => (item.status || "New") === "Under Review");
   const confirmedRecords = filteredData.filter((item) => (item.status || "New") === "Confirmed");
-  const highPriorityRecords = filteredData.filter((item) => getPriority(item) === "High");
+  const highPriorityRecords = filteredData.filter((item) => getPriority(item, organizationSettings) === "High");
   const pendingReviewCount = newRecords.length + underReviewRecords.length;
   const recentCases = filteredData.filter((c) => {
     const today = new Date();
@@ -520,14 +528,14 @@ function MapView() {
       .sort((a, b) => {
         const priorityRank = { High: 3, Medium: 2, Low: 1 };
         const statusRank = { New: 3, "Under Review": 2, Confirmed: 1, Rejected: 0, Closed: 0 };
-        const priorityDelta = (priorityRank[getPriority(b)] || 0) - (priorityRank[getPriority(a)] || 0);
+        const priorityDelta = (priorityRank[getPriority(b, organizationSettings)] || 0) - (priorityRank[getPriority(a, organizationSettings)] || 0);
         if (priorityDelta !== 0) return priorityDelta;
         const statusDelta = (statusRank[b.status || "New"] || 0) - (statusRank[a.status || "New"] || 0);
         if (statusDelta !== 0) return statusDelta;
         return parseDateValue(b.date) - parseDateValue(a.date);
       })
       .slice(0, 4),
-    [filteredData]
+    [filteredData, organizationSettings]
   );
   const statusCounts = useMemo(() => {
     const byStatus = filteredData.reduce((acc, item) => {
@@ -550,7 +558,7 @@ function MapView() {
             cases: Number(d.cases) || 1,
             disease: d.disease || "Unknown",
             location: d.location || "Unknown",
-            priority: getPriority(d),
+            priority: getPriority(d, organizationSettings),
             status: d.status || "New",
           },
           geometry: {
@@ -560,7 +568,7 @@ function MapView() {
         };
       })
       .filter(Boolean),
-  }), [filteredData]);
+  }), [filteredData, organizationSettings]);
 
   const updateFilter = (field, value) => {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -638,6 +646,13 @@ function MapView() {
   };
 
   useEffect(() => { fetchHealthData(); }, []);
+
+  useEffect(() => {
+    axios
+      .get(`${API_URL}/api/settings`)
+      .then((res) => setOrganizationSettings(res.data))
+      .catch(() => setOrganizationSettings(null));
+  }, []);
 
   useEffect(() => {
     if (!mapContainerRef.current) return undefined;
@@ -743,7 +758,7 @@ function MapView() {
         if (!coordinates) return;
 
         const el = document.createElement("div");
-        const priority = getPriority(point);
+        const priority = getPriority(point, organizationSettings);
         const status = point.status || "New";
         const size = point.cases <= 1 ? 18 : Math.min(44, 18 + point.cases / 2);
         el.className = "geohealth-marker";
@@ -777,7 +792,7 @@ function MapView() {
 
     if (map.isStyleLoaded()) addMarkers();
     else map.once("load", addMarkers);
-  }, [filteredData, showHeatmap]);
+  }, [filteredData, organizationSettings, showHeatmap]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || filteredData.length === 0) return;
@@ -1000,7 +1015,7 @@ function MapView() {
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Capture a disease event with location and report date.
         </Typography>
-        <AddCaseForm onCaseAdded={fetchHealthData} />
+        <AddCaseForm onCaseAdded={fetchHealthData} settings={organizationSettings} />
       </Drawer>
 
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -1130,7 +1145,7 @@ function MapView() {
           }}
         >
           <AnalyticsCard title="Case Trend">
-            <TrendChart rows={filteredData} />
+            <TrendChart rows={filteredData} settings={organizationSettings} />
           </AnalyticsCard>
           <AnalyticsCard title="Priority Queue">
             {priorityQueue.length === 0 ? (
@@ -1138,10 +1153,10 @@ function MapView() {
             ) : priorityQueue.map((item) => (
               <AnalyticsRow
                 key={item._id || `${item.location}-${item.date}`}
-                primary={`${item.disease} · ${getPriority(item)}`}
+                primary={`${item.disease} · ${getPriority(item, organizationSettings)}`}
                 secondary={`${item.location} · ${item.status || "New"} · ${formatDate(item.date)}`}
                 value={item.cases}
-                priority={getPriority(item)}
+                priority={getPriority(item, organizationSettings)}
               />
             ))}
           </AnalyticsCard>
@@ -1154,7 +1169,7 @@ function MapView() {
                 primary={item.disease}
                 secondary={`${item.location} · ${item.status || "New"} · ${formatDate(item.date)}`}
                 value={item.cases}
-                priority={getPriority(item)}
+                priority={getPriority(item, organizationSettings)}
               />
             ))}
           </AnalyticsCard>
@@ -1167,7 +1182,7 @@ function MapView() {
                 primary={item.location}
                 secondary="Reported case volume"
                 value={item.cases}
-                priority={getSeverity(item.cases)}
+                priority={getSeverity(item.cases, organizationSettings)}
               />
             ))}
           </AnalyticsCard>
@@ -1180,7 +1195,7 @@ function MapView() {
                 primary={item.disease}
                 secondary="Total reported cases"
                 value={item.cases}
-                priority={getSeverity(item.cases)}
+                priority={getSeverity(item.cases, organizationSettings)}
               />
             ))}
           </AnalyticsCard>
@@ -1193,7 +1208,7 @@ function MapView() {
                 primary={item.ageGroup}
                 secondary="Reported cases by age group"
                 value={item.cases}
-                priority={getSeverity(item.cases)}
+                priority={getSeverity(item.cases, organizationSettings)}
               />
             ))}
           </AnalyticsCard>
@@ -1206,7 +1221,7 @@ function MapView() {
                 primary={item.facility}
                 secondary="Reported case volume"
                 value={item.cases}
-                priority={getSeverity(item.cases)}
+                priority={getSeverity(item.cases, organizationSettings)}
               />
             ))}
           </AnalyticsCard>

@@ -21,7 +21,19 @@ const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report
 const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 
-export default function AddCaseForm({ onCaseAdded }) {
+function derivePriority(cases, settings) {
+  const count = Number(cases) || 1;
+  const lowMax = Number(settings?.lowPriorityMaxCases) || 19;
+  const mediumMax = Number(settings?.mediumPriorityMaxCases) || 49;
+  if (count <= lowMax) return "Low";
+  if (count <= mediumMax) return "Medium";
+  return "High";
+}
+
+export default function AddCaseForm({ onCaseAdded, settings }) {
+  const diseaseOptions = settings?.diseaseList?.length ? settings.diseaseList : DISEASE_OPTIONS;
+  const facilityOptions = settings?.facilityList?.length ? settings.facilityList : [];
+  const reportSourceOptions = settings?.reportSourceList?.length ? settings.reportSourceList : REPORT_SOURCE_OPTIONS;
   const [form, setForm] = useState({
     disease: "",
     location: "",
@@ -43,6 +55,16 @@ export default function AddCaseForm({ onCaseAdded }) {
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      priority: derivePriority(current.cases, settings),
+      reportSource: reportSourceOptions.includes(current.reportSource)
+        ? current.reportSource
+        : reportSourceOptions[0] || "Field report",
+    }));
+  }, [settings, reportSourceOptions]);
+
+  useEffect(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -56,7 +78,16 @@ export default function AddCaseForm({ onCaseAdded }) {
     );
   }, []);
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (e) => {
+    const nextValue = e.target.value;
+    setForm((current) => {
+      const next = { ...current, [e.target.name]: nextValue };
+      if (e.target.name === "cases") {
+        next.priority = derivePriority(nextValue, settings);
+      }
+      return next;
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -99,7 +130,7 @@ export default function AddCaseForm({ onCaseAdded }) {
         cases: 1,
         date: "",
         status: "New",
-        priority: "Medium",
+        priority: derivePriority(1, settings),
         ageGroup: "Unknown",
         sex: "Unknown",
         symptomOnsetDate: "",
@@ -151,7 +182,7 @@ export default function AddCaseForm({ onCaseAdded }) {
         required
         fullWidth
       >
-        {DISEASE_OPTIONS.map((disease) => (
+        {diseaseOptions.map((disease) => (
           <MenuItem key={disease} value={disease}>{disease}</MenuItem>
         ))}
       </TextField>
@@ -228,7 +259,13 @@ export default function AddCaseForm({ onCaseAdded }) {
           size="small"
           fullWidth
           placeholder="Clinic, school, hospital"
+          inputProps={{ list: "facility-options" }}
         />
+        <datalist id="facility-options">
+          {facilityOptions.map((facility) => (
+            <option key={facility} value={facility} />
+          ))}
+        </datalist>
       </Stack>
       <Stack direction="row" spacing={1.2}>
         <TextField
@@ -270,7 +307,7 @@ export default function AddCaseForm({ onCaseAdded }) {
         required
         fullWidth
       >
-        {REPORT_SOURCE_OPTIONS.map((source) => (
+        {reportSourceOptions.map((source) => (
           <MenuItem key={source} value={source}>{source}</MenuItem>
         ))}
       </TextField>

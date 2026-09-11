@@ -51,11 +51,13 @@ const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report
 const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 
-function getPriority(item) {
+function getPriority(item, settings) {
   if (item.priority) return item.priority;
-  if (item.cases >= 50) return "High";
-  if (item.cases >= 20) return "Medium";
-  return "Low";
+  const lowMax = Number(settings?.lowPriorityMaxCases) || 19;
+  const mediumMax = Number(settings?.mediumPriorityMaxCases) || 49;
+  if (item.cases <= lowMax) return "Low";
+  if (item.cases <= mediumMax) return "Medium";
+  return "High";
 }
 
 function formatDate(value) {
@@ -111,6 +113,14 @@ export default function CasesTable() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
+  const [organizationSettings, setOrganizationSettings] = useState(null);
+
+  const reportSourceOptions = organizationSettings?.reportSourceList?.length
+    ? organizationSettings.reportSourceList
+    : REPORT_SOURCE_OPTIONS;
+  const facilityOptions = organizationSettings?.facilityList?.length
+    ? organizationSettings.facilityList
+    : [];
 
   useEffect(() => {
     axios
@@ -121,6 +131,13 @@ export default function CasesTable() {
         setError(null);
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    axios
+      .get(`${API_URL}/api/settings`)
+      .then((res) => setOrganizationSettings(res.data))
+      .catch(() => setOrganizationSettings(null));
   }, []);
 
   useEffect(() => {
@@ -154,7 +171,7 @@ export default function CasesTable() {
     setSelectedCase(caseRecord);
     setEditForm({
       status: caseRecord.status || "New",
-      priority: getPriority(caseRecord),
+      priority: getPriority(caseRecord, organizationSettings),
       ageGroup: caseRecord.ageGroup || "Unknown",
       sex: caseRecord.sex || "Unknown",
       symptomOnsetDate: caseRecord.symptomOnsetDate || "",
@@ -314,7 +331,7 @@ export default function CasesTable() {
               </TableRow>
             ) : (
               filtered.map((c, i) => {
-                const priority = getPriority(c);
+                const priority = getPriority(c, organizationSettings);
                 const status = c.status || "New";
                 const lastReview = getLastReview(c);
                 return (
@@ -506,8 +523,14 @@ export default function CasesTable() {
                   onChange={handleEditChange}
                   size="small"
                   fullWidth
+                  inputProps={{ list: "review-facility-options" }}
                 />
               </Stack>
+              <datalist id="review-facility-options">
+                {facilityOptions.map((facility) => (
+                  <option key={facility} value={facility} />
+                ))}
+              </datalist>
               <TextField
                 select
                 label="Source"
@@ -517,7 +540,7 @@ export default function CasesTable() {
                 size="small"
                 fullWidth
               >
-                {REPORT_SOURCE_OPTIONS.map((source) => (
+                {reportSourceOptions.map((source) => (
                   <MenuItem key={source} value={source}>{source}</MenuItem>
                 ))}
               </TextField>

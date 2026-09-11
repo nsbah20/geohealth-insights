@@ -302,6 +302,30 @@ app.get("/api/admin/audit-logs", requireReviewerSession, async (req, res) => {
   }
 });
 
+app.get("/api/settings", async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const settings = await getOrganizationSettings();
+    res.json({
+      organizationName: settings.organizationName,
+      defaultRegion: settings.defaultRegion,
+      surveillanceScope: settings.surveillanceScope,
+      contactEmail: settings.contactEmail,
+      lowPriorityMaxCases: settings.lowPriorityMaxCases,
+      mediumPriorityMaxCases: settings.mediumPriorityMaxCases,
+      diseaseList: settings.diseaseList,
+      facilityList: settings.facilityList,
+      reportSourceList: settings.reportSourceList,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch organization settings" });
+  }
+});
+
 app.get("/api/admin/settings", requireReviewerSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
