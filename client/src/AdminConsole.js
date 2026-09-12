@@ -31,6 +31,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import { authHeaders, clearAdminToken, getAdminToken, setAdminToken } from "./auth";
 import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
+import AdminUsersPanel from "./AdminUsersPanel";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -38,22 +39,22 @@ const rolePlan = [
   {
     role: "System Administrator",
     access: "Manage users, facilities, disease lists, audit settings, and deployment configuration.",
-    status: "Planned",
+    status: "Directory ready",
   },
   {
     role: "Epidemiology Reviewer",
     access: "Review submitted cases, confirm signals, update priority, and document follow-up actions.",
-    status: "Ready to wire",
+    status: "Directory ready",
   },
   {
     role: "Field Reporter",
     access: "Submit new case reports and update assigned field follow-up details.",
-    status: "Planned",
+    status: "Directory ready",
   },
   {
     role: "Institution Viewer",
     access: "View dashboards, trends, and exports for approved facilities or jurisdictions.",
-    status: "Planned",
+    status: "Directory ready",
   },
 ];
 
@@ -65,6 +66,7 @@ const baseReadinessItems = [
   { label: "CSV/PDF reporting", state: "Active", tone: "success" },
   { label: "Admin access gate", state: "Active", tone: "success" },
   { label: "Organization settings", state: "Active", tone: "success" },
+  { label: "User and role directory", state: "Active", tone: "success" },
 ];
 
 const governanceItems = [
@@ -89,6 +91,8 @@ function formatAction(action) {
   if (action === "admin_login") return "Admin sign-in";
   if (action === "case_review_updated") return "Case review updated";
   if (action === "organization_settings_updated") return "Organization settings updated";
+  if (action === "organization_user_created") return "Organization user created";
+  if (action === "organization_user_updated") return "Organization user updated";
   return String(action || "Activity").replace(/_/g, " ");
 }
 
@@ -286,6 +290,20 @@ export default function AdminConsole() {
     return Math.round((complete / readinessItems.length) * 100);
   }, [readinessItems]);
 
+  const handleUnauthorized = useCallback(() => {
+    setAuthUser(null);
+    setAuthMessage({ type: "warning", text: "Admin session expired. Sign in again to continue." });
+  }, []);
+
+  const handleAdminDataChanged = useCallback(() => {
+    fetchAuditLogs();
+  }, [fetchAuditLogs]);
+
+  const handleSettingsSaved = useCallback(() => {
+    fetchAuditLogs();
+    refreshSettings();
+  }, [fetchAuditLogs, refreshSettings]);
+
   return (
     <Box sx={{ minHeight: "calc(100vh - 72px)", bgcolor: "#eef4f2", p: { xs: 2, md: 3 } }}>
       <Stack
@@ -371,7 +389,7 @@ export default function AdminConsole() {
                   <Typography variant="body1" fontWeight={900} color="#102a2c">
                     {item.role}
                   </Typography>
-                  <StatusPill label={item.status} color={item.status === "Ready to wire" ? "success" : "warning"} />
+                  <StatusPill label={item.status} color={item.status === "Directory ready" ? "success" : "warning"} />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {item.access}
@@ -440,23 +458,33 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.organizationName} settings are active. Next we can replace the shared code with individual institutional accounts and roles.
+            {organizationSettings.organizationName} can now track organization users and role assignments. Next we can connect those users to individual password or single sign-on login.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
-            <Button variant="contained" disabled sx={{ bgcolor: "#0f766e", fontWeight: 900 }}>
+            <Button variant="contained" disabled={!authUser} sx={{ bgcolor: "#0f766e", fontWeight: 900 }}>
               Add Users
             </Button>
-            <Button variant="outlined" disabled sx={{ fontWeight: 900 }}>
-              Configure Roles
+            <Button variant="outlined" disabled={!authUser} sx={{ fontWeight: 900 }}>
+              Assign Roles
             </Button>
             <Button variant="outlined" onClick={() => fetchAuditLogs()} disabled={!authUser} sx={{ fontWeight: 900 }}>
               Audit Logs
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            User and role buttons stay disabled until full account management is connected.
+            This stage stores user assignments. Full individual sign-in comes next.
           </Typography>
+        </AdminPanel>
+      </Box>
+
+      <Box sx={{ mt: 2 }}>
+        <AdminPanel title="Organization Users" icon={<ManageAccountsIcon />}>
+          <AdminUsersPanel
+            authUser={authUser}
+            onUnauthorized={handleUnauthorized}
+            onChanged={handleAdminDataChanged}
+          />
         </AdminPanel>
       </Box>
 
@@ -595,14 +623,8 @@ export default function AdminConsole() {
         <AdminPanel title="Organization Settings" icon={<AdminPanelSettingsIcon />}>
           <OrganizationSettingsPanel
             authUser={authUser}
-            onUnauthorized={() => {
-              setAuthUser(null);
-              setAuthMessage({ type: "warning", text: "Admin session expired. Sign in again to continue." });
-            }}
-            onSaved={() => {
-              fetchAuditLogs();
-              refreshSettings();
-            }}
+            onUnauthorized={handleUnauthorized}
+            onSaved={handleSettingsSaved}
           />
         </AdminPanel>
       </Box>

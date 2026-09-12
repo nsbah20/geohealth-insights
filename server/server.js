@@ -15,6 +15,7 @@ const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"]
 const CASE_PRIORITIES = ["Low", "Medium", "High"];
 const AGE_GROUPS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
+const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Reporter", "Institution Viewer", "Data Manager"];
 const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",
   defaultRegion: "Madison, WI",
@@ -204,6 +205,21 @@ const organizationSettingsSchema = new mongoose.Schema(
 );
 const OrganizationSettings = mongoose.model("OrganizationSettings", organizationSettingsSchema);
 
+const organizationUserSchema = new mongoose.Schema(
+  {
+    fullName: { type: String, required: true, trim: true },
+    email: { type: String, required: true, trim: true, lowercase: true },
+    role: { type: String, enum: USER_ROLES, required: true },
+    facility: { type: String, default: "", trim: true },
+    jurisdiction: { type: String, default: "", trim: true },
+    status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
+    notes: { type: String, default: "", trim: true, maxlength: 500 },
+  },
+  { timestamps: true }
+);
+organizationUserSchema.index({ email: 1 }, { unique: true });
+const OrganizationUser = mongoose.model("OrganizationUser", organizationUserSchema);
+
 async function writeAuditLog(entry) {
   try {
     await AuditLog.create(entry);
@@ -301,6 +317,126 @@ app.get("/api/admin/audit-logs", requireReviewerSession, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch audit logs" });
   }
 });
+
+app.get("/api/admin/users", requireReviewerSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const users = await OrganizationUser.find().sort({ role: 1, fullName: 1 });
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch organization users" });
+  }
+});
+
+app.post(
+  "/api/admin/users",
+  requireReviewerSession,
+  [
+    body("fullName").notEmpty().withMessage("Full name is required").trim().escape(),
+    body("email").isEmail().withMessage("A valid email is required").normalizeEmail(),
+    body("role").isIn(USER_ROLES).withMessage("Invalid role"),
+    body("facility").optional({ checkFalsy: true }).trim().escape(),
+    body("jurisdiction").optional({ checkFalsy: true }).trim().escape(),
+    body("notes").optional({ checkFalsy: true }).trim().isLength({ max: 500 }).withMessage("Notes must be 500 characters or fewer").escape(),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const user = await OrganizationUser.create({
+        fullName: req.body.fullName,
+        email: req.body.email,
+        role: req.body.role,
+        facility: req.body.facility || "",
+        jurisdiction: req.body.jurisdiction || "",
+        notes: req.body.notes || "",
+      });
+
+      writeAuditLog({
+        action: "organization_user_created",
+        actor: req.user.name || "Admin",
+        role: req.user.role || "Admin",
+        changedFields: ["fullName", "email", "role", "facility", "jurisdiction"],
+        metadata: {
+          userEmail: user.email,
+          userRole: user.role,
+          userStatus: user.status,
+        },
+      });
+
+      res.status(201).json(user);
+    } catch (err) {
+      if (err.code === 11000) {
+        return res.status(409).json({ error: "A user with this email already exists." });
+      }
+      console.error(err);
+      res.status(500).json({ error: "Failed to create organization user" });
+    }
+  }
+);
+
+app.patch(
+  "/api/admin/users/:id",
+  requireReviewerSession,
+  [
+    body("status").isIn(["Active", "Inactive"]).withMessage("Invalid user status"),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid user id" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const user = await OrganizationUser.findById(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "Organization user not found" });
+      }
+
+      const changedFields = user.status === req.body.status ? [] : ["status"];
+      user.status = req.body.status;
+      const updatedUser = await user.save();
+
+      if (changedFields.length > 0) {
+        writeAuditLog({
+          action: "organization_user_updated",
+          actor: req.user.name || "Admin",
+          role: req.user.role || "Admin",
+          changedFields,
+          metadata: {
+            userEmail: updatedUser.email,
+            userRole: updatedUser.role,
+            userStatus: updatedUser.status,
+          },
+        });
+      }
+
+      res.json(updatedUser);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update organization user" });
+    }
+  }
+);
 
 app.get("/api/settings", async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
