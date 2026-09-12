@@ -28,6 +28,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
 import demoData from "./demoData";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
+import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
@@ -113,7 +114,7 @@ export default function CasesTable() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
-  const [organizationSettings, setOrganizationSettings] = useState(null);
+  const { settings: organizationSettings } = useOrganizationSettings();
 
   const reportSourceOptions = organizationSettings?.reportSourceList?.length
     ? organizationSettings.reportSourceList
@@ -131,13 +132,6 @@ export default function CasesTable() {
         setError(null);
       })
       .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    axios
-      .get(`${API_URL}/api/settings`)
-      .then((res) => setOrganizationSettings(res.data))
-      .catch(() => setOrganizationSettings(null));
   }, []);
 
   useEffect(() => {
@@ -247,10 +241,10 @@ export default function CasesTable() {
       >
         <Box>
           <Typography variant="h4" fontWeight={900} color="#102a2c">
-            Disease Case Registry
+            {organizationSettings.organizationName} Case Registry
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Search, review, and triage submitted surveillance records.
+            Search, review, and triage submitted surveillance records for {organizationSettings.defaultRegion}.
           </Typography>
         </Box>
 

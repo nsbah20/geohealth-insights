@@ -30,6 +30,7 @@ import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { authHeaders, clearAdminToken, getAdminToken, setAdminToken } from "./auth";
 import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
+import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -174,6 +175,7 @@ function AdminPanel({ title, icon, children }) {
 }
 
 export default function AdminConsole() {
+  const { settings: organizationSettings, refreshSettings } = useOrganizationSettings();
   const [apiHealth, setApiHealth] = useState({ status: "Checking", color: "warning" });
   const [caseCount, setCaseCount] = useState(null);
   const [accessCode, setAccessCode] = useState("");
@@ -298,7 +300,7 @@ export default function AdminConsole() {
             Admin Console
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Operational controls, role planning, and production readiness for GeoHealth Insights.
+            Operational controls, role planning, and production readiness for {organizationSettings.organizationName}.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
@@ -597,7 +599,10 @@ export default function AdminConsole() {
               setAuthUser(null);
               setAuthMessage({ type: "warning", text: "Admin session expired. Sign in again to continue." });
             }}
-            onSaved={() => fetchAuditLogs()}
+            onSaved={() => {
+              fetchAuditLogs();
+              refreshSettings();
+            }}
           />
         </AdminPanel>
       </Box>

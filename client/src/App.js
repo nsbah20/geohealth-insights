@@ -39,6 +39,7 @@ import AddCaseForm from "./AddCaseForm";
 import CasesTable from "./CasesTable";
 import AdminConsole from "./AdminConsole";
 import demoData from "./demoData";
+import { OrganizationSettingsProvider, useOrganizationSettings } from "./OrganizationSettingsContext";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
 
@@ -83,7 +84,7 @@ function parseDateValue(value) {
   return new Date(value);
 }
 
-function buildCsv(rows) {
+function buildCsv(rows, settings) {
   const headers = [
     "Disease",
     "Location",
@@ -114,7 +115,7 @@ function buildCsv(rows) {
     row.facility || "",
     row.suspectedExposure || "",
     row.status || "New",
-    getPriority(row),
+    getPriority(row, settings),
     row.reportSource || "Field report",
     row.notes || "",
     row.lat,
@@ -124,12 +125,14 @@ function buildCsv(rows) {
   return [headers.join(","), ...body].join("\n");
 }
 
-function downloadCsv(rows) {
-  const blob = new Blob([buildCsv(rows)], { type: "text/csv;charset=utf-8;" });
+function downloadCsv(rows, settings) {
+  const organizationName = settings?.organizationName || "GeoHealth Insights";
+  const blob = new Blob([buildCsv(rows, settings)], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `geohealth-cases-${new Date().toISOString().slice(0, 10)}.csv`;
+  const safeName = organizationName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "geohealth";
+  link.download = `${safeName}-cases-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -152,7 +155,10 @@ function getCaseCoordinates(point) {
   return [lng, lat];
 }
 
-function printPdfReport(rows) {
+function printPdfReport(rows, settings) {
+  const organizationName = settings?.organizationName || "GeoHealth Insights";
+  const surveillanceScope = settings?.surveillanceScope || "Disease surveillance and geospatial reporting";
+  const defaultRegion = settings?.defaultRegion || "Not specified";
   const totalCases = rows.reduce((sum, item) => sum + item.cases, 0);
   const reportWindow = window.open("", "_blank", "width=1000,height=800");
   if (!reportWindow) return;
@@ -168,7 +174,7 @@ function printPdfReport(rows) {
       <td>${escapeHtml(row.sex || "Unknown")}</td>
       <td>${escapeHtml(row.facility || "Not specified")}</td>
       <td>${escapeHtml(row.status || "New")}</td>
-      <td>${escapeHtml(getPriority(row))}</td>
+      <td>${escapeHtml(getPriority(row, settings))}</td>
       <td>${escapeHtml(row.reportSource || "Field report")}</td>
       <td>${escapeHtml(row.notes || "")}</td>
     </tr>
@@ -178,7 +184,7 @@ function printPdfReport(rows) {
     <!doctype html>
     <html>
       <head>
-        <title>GeoHealth Insights Report</title>
+        <title>${escapeHtml(organizationName)} Report</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 32px; color: #102a2c; }
           h1 { margin-bottom: 4px; }
@@ -193,8 +199,8 @@ function printPdfReport(rows) {
         </style>
       </head>
       <body>
-        <h1>GeoHealth Insights Report</h1>
-        <div class="meta">Generated ${formatDate(new Date().toISOString())}</div>
+        <h1>${escapeHtml(organizationName)} Report</h1>
+        <div class="meta">${escapeHtml(surveillanceScope)} · Region: ${escapeHtml(defaultRegion)} · Generated ${formatDate(new Date().toISOString())}</div>
         <div class="cards">
           <div class="card"><div class="label">Records</div><div class="value">${rows.length}</div></div>
           <div class="card"><div class="label">Total Cases</div><div class="value">${totalCases}</div></div>
@@ -418,7 +424,7 @@ function MapView() {
   const [loadingData, setLoadingData] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [mapReady, setMapReady] = useState(false);
-  const [organizationSettings, setOrganizationSettings] = useState(null);
+  const { settings: organizationSettings } = useOrganizationSettings();
   const [filters, setFilters] = useState({
     disease: "All",
     status: "All",
@@ -648,13 +654,6 @@ function MapView() {
   useEffect(() => { fetchHealthData(); }, []);
 
   useEffect(() => {
-    axios
-      .get(`${API_URL}/api/settings`)
-      .then((res) => setOrganizationSettings(res.data))
-      .catch(() => setOrganizationSettings(null));
-  }, []);
-
-  useEffect(() => {
     if (!mapContainerRef.current) return undefined;
 
     const animationFrame = window.requestAnimationFrame(() => {
@@ -849,8 +848,14 @@ function MapView() {
             Situation Overview
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Monitor disease reports, activity trends, and location intelligence.
+            {organizationSettings.surveillanceScope}
           </Typography>
+          <Chip
+            label={organizationSettings.defaultRegion}
+            size="small"
+            variant="outlined"
+            sx={{ mt: 1.2, bgcolor: "white", fontWeight: 800 }}
+          />
         </Box>
         {loadingData ? (
           <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
@@ -1242,7 +1247,7 @@ function MapView() {
             <Button
               variant="contained"
               startIcon={<FileDownloadIcon />}
-              onClick={() => downloadCsv(filteredData)}
+              onClick={() => downloadCsv(filteredData, organizationSettings)}
               disabled={filteredData.length === 0}
               sx={{ justifyContent: "flex-start", bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
             >
@@ -1251,7 +1256,7 @@ function MapView() {
             <Button
               variant="outlined"
               startIcon={<PrintIcon />}
-              onClick={() => printPdfReport(filteredData)}
+              onClick={() => printPdfReport(filteredData, organizationSettings)}
               disabled={filteredData.length === 0}
               sx={{ justifyContent: "flex-start", fontWeight: 900 }}
             >
@@ -1269,6 +1274,7 @@ function MapView() {
 
 function NavBar() {
   const location = useLocation();
+  const { settings } = useOrganizationSettings();
   return (
     <AppBar position="static" elevation={0} sx={{ bgcolor: "#082f2f", borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
       <Toolbar sx={{ minHeight: "72px !important", gap: 1, flexWrap: { xs: "wrap", sm: "nowrap" }, py: { xs: 1, sm: 0 } }}>
@@ -1305,10 +1311,10 @@ function NavBar() {
           </Box>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="h6" fontWeight={900} sx={{ lineHeight: 1.1 }}>
-              GeoHealth Insights
+              {settings.organizationName}
             </Typography>
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.72)", fontWeight: 600 }}>
-              Disease surveillance and geospatial reporting
+              {settings.surveillanceScope}
             </Typography>
           </Box>
         </Box>
@@ -1347,12 +1353,14 @@ function NavBar() {
 function App() {
   return (
     <BrowserRouter>
-      <NavBar />
-      <Routes>
-        <Route path="/" element={<MapView />} />
-        <Route path="/cases" element={<CasesTable />} />
-        <Route path="/admin" element={<AdminConsole />} />
-      </Routes>
+      <OrganizationSettingsProvider>
+        <NavBar />
+        <Routes>
+          <Route path="/" element={<MapView />} />
+          <Route path="/cases" element={<CasesTable />} />
+          <Route path="/admin" element={<AdminConsole />} />
+        </Routes>
+      </OrganizationSettingsProvider>
     </BrowserRouter>
   );
 }
