@@ -256,7 +256,7 @@ export default function AdminConsole() {
       setAdminToken(res.data.token);
       setAuthUser(res.data.user);
       setAccessCode("");
-      setAuthMessage({ type: "success", text: "Admin session active. Case review saving is now unlocked." });
+      setAuthMessage({ type: "success", text: `${organizationSettings.organizationName} admin session active. Case review saving is now unlocked.` });
       fetchAuditLogs(res.data.token);
     } catch (err) {
       const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to sign in.";
@@ -297,15 +297,15 @@ export default function AdminConsole() {
       >
         <Box>
           <Typography variant="h4" fontWeight={900} color="#102a2c">
-            Admin Console
+            {organizationSettings.organizationName} Admin Console
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Operational controls, role planning, and production readiness for {organizationSettings.organizationName}.
+            Manage readiness, access, audit logs, and surveillance settings for {organizationSettings.defaultRegion}.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
           <StatusPill label={`API ${apiHealth.status}`} color={apiHealth.color} />
-          <StatusPill label={authUser ? "Admin session active" : "Admin access locked"} color={authUser ? "success" : "warning"} />
+          <StatusPill label={authUser ? "Organization admin active" : "Organization admin locked"} color={authUser ? "success" : "warning"} />
         </Stack>
       </Stack>
 
@@ -440,7 +440,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Organization settings are now active. Next we can replace the shared code with individual institutional accounts and roles.
+            {organizationSettings.organizationName} settings are active. Next we can replace the shared code with individual institutional accounts and roles.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
