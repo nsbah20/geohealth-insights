@@ -115,6 +115,7 @@ export default function CasesTable() {
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
   const { settings: organizationSettings } = useOrganizationSettings();
+  const canReview = Boolean(adminSession?.canReview);
 
   const reportSourceOptions = organizationSettings?.reportSourceList?.length
     ? organizationSettings.reportSourceList
@@ -191,7 +192,7 @@ export default function CasesTable() {
     if (!selectedCase?._id || String(selectedCase._id).startsWith("demo-")) return;
     const token = getAdminToken();
     if (!token) {
-      setSaveMessage({ type: "warning", text: "Admin access is required before saving case reviews. Open the Admin tab and sign in first." });
+      setSaveMessage({ type: "warning", text: "Reviewer access is required before saving case reviews. Open the Admin tab and sign in first." });
       return;
     }
 
@@ -271,17 +272,17 @@ export default function CasesTable() {
             }}
           />
           <Chip
-            label={adminSession ? `${adminSession.role} session active` : "Review saving locked"}
-            color={adminSession ? "success" : "warning"}
+            label={canReview ? `${adminSession.role} review access active` : "Review saving locked"}
+            color={canReview ? "success" : "warning"}
             size="small"
             sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", md: "flex-end" } }}
           />
         </Stack>
       </Stack>
 
-      {!adminSession && (
+      {!canReview && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Case review updates are protected now. Sign in from the Admin tab before saving review changes.
+          Case review updates are protected now. Sign in as an administrator, epidemiology reviewer, or data manager before saving review changes.
         </Alert>
       )}
 
@@ -621,7 +622,7 @@ export default function CasesTable() {
           </Button>
           <Button
             onClick={saveReview}
-            disabled={saving || !adminSession || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
+            disabled={saving || !canReview || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
             variant="contained"
             sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
           >

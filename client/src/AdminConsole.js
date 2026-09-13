@@ -9,6 +9,7 @@ import {
   Chip,
   Divider,
   LinearProgress,
+  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -89,6 +90,7 @@ function formatDateTime(value) {
 
 function formatAction(action) {
   if (action === "admin_login") return "Admin sign-in";
+  if (action === "organization_user_login") return "Organization user sign-in";
   if (action === "case_review_updated") return "Case review updated";
   if (action === "organization_settings_updated") return "Organization settings updated";
   if (action === "organization_user_created") return "Organization user created";
@@ -182,6 +184,8 @@ export default function AdminConsole() {
   const { settings: organizationSettings, refreshSettings } = useOrganizationSettings();
   const [apiHealth, setApiHealth] = useState({ status: "Checking", color: "warning" });
   const [caseCount, setCaseCount] = useState(null);
+  const [loginMode, setLoginMode] = useState("admin");
+  const [userEmail, setUserEmail] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [authUser, setAuthUser] = useState(null);
   const [authMessage, setAuthMessage] = useState(null);
@@ -246,7 +250,7 @@ export default function AdminConsole() {
   }, []);
 
   useEffect(() => {
-    if (authUser) fetchAuditLogs();
+    if (authUser?.canAdmin) fetchAuditLogs();
     else setAuditLogs([]);
   }, [authUser, fetchAuditLogs]);
 
@@ -256,12 +260,15 @@ export default function AdminConsole() {
     setAuthMessage(null);
 
     try {
-      const res = await axios.post(`${API_URL}/api/auth/login`, { accessCode });
+      const endpoint = loginMode === "user" ? "/api/auth/user-login" : "/api/auth/login";
+      const payload = loginMode === "user" ? { email: userEmail, accessCode } : { accessCode };
+      const res = await axios.post(`${API_URL}${endpoint}`, payload);
       setAdminToken(res.data.token);
       setAuthUser(res.data.user);
       setAccessCode("");
-      setAuthMessage({ type: "success", text: `${organizationSettings.organizationName} admin session active. Case review saving is now unlocked.` });
-      fetchAuditLogs(res.data.token);
+      setUserEmail("");
+      setAuthMessage({ type: "success", text: `${res.data.user.role} session active for ${res.data.user.name}.` });
+      if (res.data.user.canAdmin) fetchAuditLogs(res.data.token);
     } catch (err) {
       const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to sign in.";
       setAuthMessage({ type: "error", text });
@@ -289,6 +296,7 @@ export default function AdminConsole() {
     const complete = readinessItems.filter((item) => item.tone === "success" || item.tone === "info").length;
     return Math.round((complete / readinessItems.length) * 100);
   }, [readinessItems]);
+  const canAdmin = Boolean(authUser?.canAdmin);
 
   const handleUnauthorized = useCallback(() => {
     setAuthUser(null);
@@ -323,7 +331,7 @@ export default function AdminConsole() {
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
           <StatusPill label={`API ${apiHealth.status}`} color={apiHealth.color} />
-          <StatusPill label={authUser ? "Organization admin active" : "Organization admin locked"} color={authUser ? "success" : "warning"} />
+          <StatusPill label={canAdmin ? "Organization admin active" : "Organization admin locked"} color={canAdmin ? "success" : "warning"} />
         </Stack>
       </Stack>
 
@@ -462,13 +470,13 @@ export default function AdminConsole() {
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
-            <Button variant="contained" disabled={!authUser} sx={{ bgcolor: "#0f766e", fontWeight: 900 }}>
+            <Button variant="contained" disabled={!canAdmin} sx={{ bgcolor: "#0f766e", fontWeight: 900 }}>
               Add Users
             </Button>
-            <Button variant="outlined" disabled={!authUser} sx={{ fontWeight: 900 }}>
+            <Button variant="outlined" disabled={!canAdmin} sx={{ fontWeight: 900 }}>
               Assign Roles
             </Button>
-            <Button variant="outlined" onClick={() => fetchAuditLogs()} disabled={!authUser} sx={{ fontWeight: 900 }}>
+            <Button variant="outlined" onClick={() => fetchAuditLogs()} disabled={!canAdmin} sx={{ fontWeight: 900 }}>
               Audit Logs
             </Button>
           </Stack>
@@ -481,7 +489,7 @@ export default function AdminConsole() {
       <Box sx={{ mt: 2 }}>
         <AdminPanel title="Organization Users" icon={<ManageAccountsIcon />}>
           <AdminUsersPanel
-            authUser={authUser}
+            authUser={canAdmin ? authUser : null}
             onUnauthorized={handleUnauthorized}
             onChanged={handleAdminDataChanged}
           />
@@ -510,7 +518,7 @@ export default function AdminConsole() {
                   {authUser.name}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Role: {authUser.role}. This session can save case review updates.
+                  Role: {authUser.role}. {authUser.canAdmin ? "This session can manage users and settings." : authUser.canReview ? "This session can save case review updates." : "This session can access assigned organization workflows."}
                 </Typography>
               </Box>
               <Button
@@ -527,7 +535,29 @@ export default function AdminConsole() {
             <Box component="form" onSubmit={handleLogin}>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ xs: "stretch", sm: "center" }}>
                 <TextField
-                  label="Admin Access Code"
+                  select
+                  label="Sign In Type"
+                  value={loginMode}
+                  onChange={(event) => setLoginMode(event.target.value)}
+                  size="small"
+                  sx={{ maxWidth: { sm: 240 }, flex: 1 }}
+                >
+                  <MenuItem value="admin">Admin setup code</MenuItem>
+                  <MenuItem value="user">Organization user</MenuItem>
+                </TextField>
+                {loginMode === "user" && (
+                  <TextField
+                    label="Email"
+                    type="email"
+                    value={userEmail}
+                    onChange={(event) => setUserEmail(event.target.value)}
+                    size="small"
+                    required
+                    sx={{ maxWidth: { sm: 320 }, flex: 1 }}
+                  />
+                )}
+                <TextField
+                  label={loginMode === "user" ? "User Access Code" : "Admin Access Code"}
                   type="password"
                   value={accessCode}
                   onChange={(event) => setAccessCode(event.target.value)}
@@ -538,23 +568,23 @@ export default function AdminConsole() {
                   type="submit"
                   variant="contained"
                   startIcon={<LoginIcon />}
-                  disabled={signingIn || !accessCode.trim()}
+                  disabled={signingIn || !accessCode.trim() || (loginMode === "user" && !userEmail.trim())}
                   sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
                 >
                   {signingIn ? "Signing In..." : "Sign In"}
                 </Button>
               </Stack>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                Set ADMIN_ACCESS_CODE on Render for production. Local development can use the temporary dev code.
+                Admin setup code manages the organization. Listed users can sign in with their email and assigned access code.
               </Typography>
             </Box>
           )}
         </AdminPanel>
 
         <AdminPanel title="Audit Logs" icon={<FactCheckIcon />}>
-          {!authUser ? (
+          {!canAdmin ? (
             <Alert severity="warning">
-              Sign in with the admin access code to view audit activity.
+              Sign in as an administrator to view audit activity.
             </Alert>
           ) : auditError ? (
             <Alert severity="error">{auditError}</Alert>
@@ -622,7 +652,7 @@ export default function AdminConsole() {
       <Box sx={{ mt: 2 }}>
         <AdminPanel title="Organization Settings" icon={<AdminPanelSettingsIcon />}>
           <OrganizationSettingsPanel
-            authUser={authUser}
+            authUser={canAdmin ? authUser : null}
             onUnauthorized={handleUnauthorized}
             onSaved={handleSettingsSaved}
           />

@@ -18,6 +18,7 @@ import {
   Typography,
 } from "@mui/material";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
+import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import ToggleOffIcon from "@mui/icons-material/ToggleOff";
 import ToggleOnIcon from "@mui/icons-material/ToggleOn";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
@@ -29,6 +30,7 @@ const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Repo
 const emptyForm = {
   fullName: "",
   email: "",
+  accessCode: "",
   role: "Field Reporter",
   facility: "",
   jurisdiction: "",
@@ -109,6 +111,28 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     }
   };
 
+  const resetAccessCode = async (user) => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    const nextCode = window.prompt(`Enter a new access code for ${user.fullName}. Use at least 6 characters.`);
+    if (!nextCode) return;
+
+    try {
+      const res = await axios.patch(`${API_URL}/api/admin/users/${user._id}`, { accessCode: nextCode }, { headers: authHeaders(token) });
+      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
+      setMessage({ type: "success", text: `Access code updated for ${user.fullName}.` });
+      onChanged?.();
+    } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        onUnauthorized?.();
+      }
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to update access code.";
+      setMessage({ type: "error", text });
+    }
+  };
+
   const toggleStatus = async (user) => {
     const token = getAdminToken();
     if (!token) return;
@@ -148,6 +172,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
         <Stack direction={{ xs: "column", lg: "row" }} spacing={1.2}>
           <TextField label="Full Name" name="fullName" value={form.fullName} onChange={handleChange} size="small" required fullWidth />
           <TextField label="Email" name="email" type="email" value={form.email} onChange={handleChange} size="small" required fullWidth />
+          <TextField label="Access Code" name="accessCode" type="password" value={form.accessCode} onChange={handleChange} size="small" required fullWidth inputProps={{ minLength: 6 }} />
           <TextField select label="Role" name="role" value={form.role} onChange={handleChange} size="small" required fullWidth>
             {USER_ROLES.map((role) => (
               <MenuItem key={role} value={role}>{role}</MenuItem>
@@ -202,7 +227,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                 <TableCell>Jurisdiction</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Added</TableCell>
-                <TableCell align="right">Access</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -221,15 +246,26 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   </TableCell>
                   <TableCell>{formatDate(user.createdAt)}</TableCell>
                   <TableCell align="right">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={user.status === "Active" ? <ToggleOffIcon /> : <ToggleOnIcon />}
-                      onClick={() => toggleStatus(user)}
-                      sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
-                    >
-                      {user.status === "Active" ? "Deactivate" : "Activate"}
-                    </Button>
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<VpnKeyIcon />}
+                        onClick={() => resetAccessCode(user)}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Set Code
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={user.status === "Active" ? <ToggleOffIcon /> : <ToggleOnIcon />}
+                        onClick={() => toggleStatus(user)}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        {user.status === "Active" ? "Deactivate" : "Activate"}
+                      </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}

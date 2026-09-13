@@ -16,6 +16,9 @@ const CASE_PRIORITIES = ["Low", "Medium", "High"];
 const AGE_GROUPS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
 const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Reporter", "Institution Viewer", "Data Manager"];
+const ADMIN_ROLES = ["Admin", "System Administrator"];
+const REVIEWER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Data Manager"];
+const REPORTER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Field Reporter", "Data Manager"];
 const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",
   defaultRegion: "Madison, WI",
@@ -74,7 +77,10 @@ function createSessionToken(user) {
   const payload = base64UrlEncode({
     sub: user.id,
     name: user.name,
+    email: user.email || "",
     role: user.role,
+    facility: user.facility || "",
+    jurisdiction: user.jurisdiction || "",
     exp: Date.now() + SESSION_TTL_MS,
   });
   return `${payload}.${signPayload(payload)}`;
@@ -105,17 +111,54 @@ function readSessionToken(req) {
 }
 
 function requireReviewerSession(req, res, next) {
-  if (!ADMIN_ACCESS_CODE && process.env.NODE_ENV === "production") {
-    return res.status(503).json({ error: "Admin access is not configured yet." });
-  }
-
   const session = readSessionToken(req);
-  if (!session || !["Admin", "Reviewer"].includes(session.role)) {
+  if (!session || !REVIEWER_ROLES.includes(session.role)) {
     return res.status(401).json({ error: "Reviewer access is required." });
   }
 
   req.user = session;
   next();
+}
+
+function requireAdminSession(req, res, next) {
+  const session = readSessionToken(req);
+  if (!session || !ADMIN_ROLES.includes(session.role)) {
+    return res.status(401).json({ error: "Administrator access is required." });
+  }
+
+  req.user = session;
+  next();
+}
+
+function buildSessionUser(session) {
+  const role = session.role || "";
+  return {
+    name: session.name,
+    email: session.email || "",
+    role,
+    facility: session.facility || "",
+    jurisdiction: session.jurisdiction || "",
+    expiresAt: new Date(session.exp).toISOString(),
+    canAdmin: ADMIN_ROLES.includes(role),
+    canReview: REVIEWER_ROLES.includes(role),
+    canReport: REPORTER_ROLES.includes(role),
+    canView: Boolean(role),
+  };
+}
+
+function hashAccessCode(accessCode) {
+  const salt = crypto.randomBytes(16).toString("base64url");
+  const hash = crypto.scryptSync(accessCode, salt, 64).toString("base64url");
+  return `${salt}:${hash}`;
+}
+
+function verifyAccessCode(accessCode, storedHash) {
+  if (!accessCode || !storedHash || !storedHash.includes(":")) return false;
+  const [salt, hash] = storedHash.split(":");
+  const submittedHash = crypto.scryptSync(accessCode, salt, 64).toString("base64url");
+  const expectedBuffer = Buffer.from(hash);
+  const submittedBuffer = Buffer.from(submittedHash);
+  return expectedBuffer.length === submittedBuffer.length && crypto.timingSafeEqual(expectedBuffer, submittedBuffer);
 }
 
 // ── MongoDB connection ───────────────────────────────────────────────────────
@@ -213,6 +256,7 @@ const organizationUserSchema = new mongoose.Schema(
     facility: { type: String, default: "", trim: true },
     jurisdiction: { type: String, default: "", trim: true },
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
+    accessCodeHash: { type: String, required: true, select: false },
     notes: { type: String, default: "", trim: true, maxlength: 500 },
   },
   { timestamps: true }
@@ -244,11 +288,7 @@ app.get("/api/auth/session", (req, res) => {
   }
   res.json({
     authenticated: true,
-    user: {
-      name: session.name,
-      role: session.role,
-      expiresAt: new Date(session.exp).toISOString(),
-    },
+    user: buildSessionUser(session),
   });
 });
 
@@ -282,6 +322,7 @@ app.post(
     const user = {
       id: "geohealth-admin",
       name: "GeoHealth Administrator",
+      email: "",
       role: "Admin",
     };
 
@@ -296,15 +337,65 @@ app.post(
 
     res.json({
       token: createSessionToken(user),
-      user: {
-        name: user.name,
-        role: user.role,
-      },
+      user: buildSessionUser({ ...user, exp: Date.now() + SESSION_TTL_MS }),
     });
   }
 );
 
-app.get("/api/admin/audit-logs", requireReviewerSession, async (req, res) => {
+app.post(
+  "/api/auth/user-login",
+  [
+    body("email").isEmail().withMessage("A valid email is required").normalizeEmail(),
+    body("accessCode").notEmpty().withMessage("Access code is required").trim(),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const user = await OrganizationUser.findOne({ email: req.body.email }).select("+accessCodeHash");
+      if (!user || user.status !== "Active" || !verifyAccessCode(req.body.accessCode, user.accessCodeHash)) {
+        return res.status(401).json({ error: "Invalid email or access code." });
+      }
+
+      const sessionUser = {
+        id: String(user._id),
+        name: user.fullName,
+        email: user.email,
+        role: user.role,
+        facility: user.facility,
+        jurisdiction: user.jurisdiction,
+      };
+
+      writeAuditLog({
+        action: "organization_user_login",
+        actor: user.fullName,
+        role: user.role,
+        metadata: {
+          userEmail: user.email,
+          userRole: user.role,
+          source: "organization_user_login",
+        },
+      });
+
+      res.json({
+        token: createSessionToken(sessionUser),
+        user: buildSessionUser({ ...sessionUser, exp: Date.now() + SESSION_TTL_MS }),
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to sign in organization user" });
+    }
+  }
+);
+
+app.get("/api/admin/audit-logs", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
   }
@@ -318,7 +409,7 @@ app.get("/api/admin/audit-logs", requireReviewerSession, async (req, res) => {
   }
 });
 
-app.get("/api/admin/users", requireReviewerSession, async (req, res) => {
+app.get("/api/admin/users", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
   }
@@ -334,10 +425,11 @@ app.get("/api/admin/users", requireReviewerSession, async (req, res) => {
 
 app.post(
   "/api/admin/users",
-  requireReviewerSession,
+  requireAdminSession,
   [
     body("fullName").notEmpty().withMessage("Full name is required").trim().escape(),
     body("email").isEmail().withMessage("A valid email is required").normalizeEmail(),
+    body("accessCode").isLength({ min: 6, max: 80 }).withMessage("Access code must be at least 6 characters").trim(),
     body("role").isIn(USER_ROLES).withMessage("Invalid role"),
     body("facility").optional({ checkFalsy: true }).trim().escape(),
     body("jurisdiction").optional({ checkFalsy: true }).trim().escape(),
@@ -360,6 +452,7 @@ app.post(
         role: req.body.role,
         facility: req.body.facility || "",
         jurisdiction: req.body.jurisdiction || "",
+        accessCodeHash: hashAccessCode(req.body.accessCode),
         notes: req.body.notes || "",
       });
 
@@ -372,6 +465,7 @@ app.post(
           userEmail: user.email,
           userRole: user.role,
           userStatus: user.status,
+          credential: "access_code_created",
         },
       });
 
@@ -388,9 +482,10 @@ app.post(
 
 app.patch(
   "/api/admin/users/:id",
-  requireReviewerSession,
+  requireAdminSession,
   [
-    body("status").isIn(["Active", "Inactive"]).withMessage("Invalid user status"),
+    body("status").optional().isIn(["Active", "Inactive"]).withMessage("Invalid user status"),
+    body("accessCode").optional({ checkFalsy: true }).isLength({ min: 6, max: 80 }).withMessage("Access code must be at least 6 characters").trim(),
   ],
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
@@ -407,13 +502,23 @@ app.patch(
     }
 
     try {
-      const user = await OrganizationUser.findById(req.params.id);
+      const user = await OrganizationUser.findById(req.params.id).select("+accessCodeHash");
       if (!user) {
         return res.status(404).json({ error: "Organization user not found" });
       }
 
-      const changedFields = user.status === req.body.status ? [] : ["status"];
-      user.status = req.body.status;
+      const changedFields = [];
+      if (req.body.status && user.status !== req.body.status) {
+        changedFields.push("status");
+        user.status = req.body.status;
+      }
+      if (req.body.accessCode) {
+        changedFields.push("accessCode");
+        user.accessCodeHash = hashAccessCode(req.body.accessCode);
+      }
+      if (!user.accessCodeHash) {
+        return res.status(400).json({ error: "Set an access code for this user before changing access status." });
+      }
       const updatedUser = await user.save();
 
       if (changedFields.length > 0) {
@@ -462,7 +567,7 @@ app.get("/api/settings", async (req, res) => {
   }
 });
 
-app.get("/api/admin/settings", requireReviewerSession, async (req, res) => {
+app.get("/api/admin/settings", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
   }
@@ -478,7 +583,7 @@ app.get("/api/admin/settings", requireReviewerSession, async (req, res) => {
 
 app.patch(
   "/api/admin/settings",
-  requireReviewerSession,
+  requireAdminSession,
   [
     body("organizationName").notEmpty().withMessage("Organization name is required").trim().escape(),
     body("defaultRegion").notEmpty().withMessage("Default region is required").trim().escape(),
