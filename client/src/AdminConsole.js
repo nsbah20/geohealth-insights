@@ -92,6 +92,7 @@ function formatAction(action) {
   if (action === "admin_login") return "Admin sign-in";
   if (action === "organization_user_login") return "Organization user sign-in";
   if (action === "case_review_updated") return "Case review updated";
+  if (action === "case_deleted") return "Case deleted";
   if (action === "organization_settings_updated") return "Organization settings updated";
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";

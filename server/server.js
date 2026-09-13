@@ -19,6 +19,7 @@ const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Repo
 const ADMIN_ROLES = ["Admin", "System Administrator"];
 const REVIEWER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Data Manager"];
 const REPORTER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Field Reporter", "Data Manager"];
+const DELETE_ROLES = ["Admin", "System Administrator"];
 const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",
   defaultRegion: "Madison, WI",
@@ -46,7 +47,7 @@ app.use(
       }
       return callback(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST", "PATCH"],
+    methods: ["GET", "POST", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -130,6 +131,16 @@ function requireAdminSession(req, res, next) {
   next();
 }
 
+function requireDeleteSession(req, res, next) {
+  const session = readSessionToken(req);
+  if (!session || !DELETE_ROLES.includes(session.role)) {
+    return res.status(401).json({ error: "Administrator access is required to delete cases." });
+  }
+
+  req.user = session;
+  next();
+}
+
 function buildSessionUser(session) {
   const role = session.role || "";
   return {
@@ -142,6 +153,7 @@ function buildSessionUser(session) {
     canAdmin: ADMIN_ROLES.includes(role),
     canReview: REVIEWER_ROLES.includes(role),
     canReport: REPORTER_ROLES.includes(role),
+    canDelete: DELETE_ROLES.includes(role),
     canView: Boolean(role),
   };
 }
@@ -844,6 +856,45 @@ app.patch(
     }
   }
 );
+
+app.delete("/api/cases/:id", requireDeleteSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid case id" });
+  }
+
+  try {
+    const caseRecord = await Case.findById(req.params.id);
+    if (!caseRecord) {
+      return res.status(404).json({ error: "Case not found" });
+    }
+
+    await Case.deleteOne({ _id: caseRecord._id });
+    writeAuditLog({
+      action: "case_deleted",
+      actor: req.user.name || "Administrator",
+      role: req.user.role || "Administrator",
+      caseId: caseRecord._id,
+      caseDisease: caseRecord.disease,
+      caseLocation: caseRecord.location,
+      changedFields: ["deleted"],
+      metadata: {
+        cases: caseRecord.cases,
+        reportDate: caseRecord.date,
+        status: caseRecord.status,
+        priority: caseRecord.priority,
+      },
+    });
+
+    res.json({ deleted: true, id: String(caseRecord._id) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete case" });
+  }
+});
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/ping", (req, res) => res.json({ status: "ok" }));

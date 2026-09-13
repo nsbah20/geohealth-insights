@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
 import demoData from "./demoData";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
@@ -112,10 +113,12 @@ export default function CasesTable() {
     notes: "",
   });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
   const { settings: organizationSettings } = useOrganizationSettings();
   const canReview = Boolean(adminSession?.canReview);
+  const canDelete = Boolean(adminSession?.canDelete);
 
   const reportSourceOptions = organizationSettings?.reportSourceList?.length
     ? organizationSettings.reportSourceList
@@ -179,7 +182,7 @@ export default function CasesTable() {
   };
 
   const closeReview = () => {
-    if (saving) return;
+    if (saving || deleting) return;
     setSelectedCase(null);
     setSaveMessage(null);
   };
@@ -214,6 +217,38 @@ export default function CasesTable() {
       setSaveMessage({ type: "error", text });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteCase = async (caseRecord = selectedCase) => {
+    if (!caseRecord?._id || String(caseRecord._id).startsWith("demo-")) return;
+    const token = getAdminToken();
+    if (!token || !canDelete) {
+      setSelectedCase(caseRecord);
+      setSaveMessage({ type: "warning", text: "Administrator access is required before deleting a case." });
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete this ${caseRecord.disease} case record from ${caseRecord.location}? This action will be recorded in the audit log.`);
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setSaveMessage(null);
+
+    try {
+      await axios.delete(`${API_URL}/api/cases/${caseRecord._id}`, { headers: authHeaders(token) });
+      setCases((current) => current.filter((item) => item._id !== caseRecord._id));
+      setSelectedCase(null);
+      setSaveMessage(null);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        setAdminSession(null);
+      }
+      const text = err.response?.data?.error || "Unable to delete this case.";
+      setSaveMessage({ type: "error", text });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -314,7 +349,7 @@ export default function CasesTable() {
               <TableCell>Last Reviewed</TableCell>
               <TableCell align="right">Lat</TableCell>
               <TableCell align="right">Lng</TableCell>
-              <TableCell align="right">Review</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -398,16 +433,31 @@ export default function CasesTable() {
                     <TableCell align="right">{Number(c.lat).toFixed(4)}</TableCell>
                     <TableCell align="right">{Number(c.lng).toFixed(4)}</TableCell>
                     <TableCell align="right">
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<EditIcon />}
-                        onClick={() => openReview(c)}
-                        disabled={String(c._id || "").startsWith("demo-")}
-                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
-                      >
-                        Review
-                      </Button>
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<EditIcon />}
+                          onClick={() => openReview(c)}
+                          disabled={String(c._id || "").startsWith("demo-")}
+                          sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                        >
+                          Review
+                        </Button>
+                        {canDelete && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            startIcon={<DeleteIcon />}
+                            onClick={() => deleteCase(c)}
+                            disabled={deleting || String(c._id || "").startsWith("demo-")}
+                            sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 );
@@ -617,12 +667,23 @@ export default function CasesTable() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={closeReview} disabled={saving} sx={{ fontWeight: 800 }}>
+          {canDelete && selectedCase && !String(selectedCase._id || "").startsWith("demo-") && (
+            <Button
+              onClick={deleteCase}
+              disabled={saving || deleting}
+              color="error"
+              startIcon={<DeleteIcon />}
+              sx={{ mr: "auto", fontWeight: 900 }}
+            >
+              {deleting ? "Deleting..." : "Delete Case"}
+            </Button>
+          )}
+          <Button onClick={closeReview} disabled={saving || deleting} sx={{ fontWeight: 800 }}>
             Close
           </Button>
           <Button
             onClick={saveReview}
-            disabled={saving || !canReview || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
+            disabled={saving || deleting || !canReview || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
             variant="contained"
             sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
           >
