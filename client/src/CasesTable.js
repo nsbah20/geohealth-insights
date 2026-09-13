@@ -331,7 +331,7 @@ export default function CasesTable() {
           overflowX: "auto",
         }}
       >
-        <Table size="small" sx={{ minWidth: 1720 }}>
+        <Table size="small" sx={{ minWidth: 1880 }}>
           <TableHead>
             <TableRow sx={{ "& th": { fontWeight: 900, bgcolor: "#082f2f", color: "white", py: 1.5 } }}>
               <TableCell>#</TableCell>
@@ -342,6 +342,7 @@ export default function CasesTable() {
               <TableCell>Priority</TableCell>
               <TableCell>Age/Sex</TableCell>
               <TableCell>Facility</TableCell>
+              <TableCell>Reporter</TableCell>
               <TableCell>Source</TableCell>
               <TableCell>Notes</TableCell>
               <TableCell>Report Date</TableCell>
@@ -355,7 +356,7 @@ export default function CasesTable() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={16} align="center">
+                <TableCell colSpan={17} align="center">
                   No cases found.
                 </TableCell>
               </TableRow>
@@ -406,6 +407,14 @@ export default function CasesTable() {
                       </Typography>
                     </TableCell>
                     <TableCell>{c.facility || "Not specified"}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={700}>
+                        {c.submittedBy || "Unknown reporter"}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {c.submittedByRole || "Unassigned role"}
+                      </Typography>
+                    </TableCell>
                     <TableCell>{c.reportSource || "Field report"}</TableCell>
                     <TableCell sx={{ maxWidth: 280 }}>
                       <Typography variant="body2" color="text.secondary" noWrap>
@@ -487,6 +496,9 @@ export default function CasesTable() {
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {selectedCase.facility || "No facility specified"} · Onset {selectedCase.symptomOnsetDate ? formatDate(selectedCase.symptomOnsetDate) : "unknown"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Submitted by {selectedCase.submittedBy || "Unknown reporter"}{selectedCase.submittedByRole ? ` · ${selectedCase.submittedByRole}` : ""}
                 </Typography>
               </Box>
               {saveMessage && (

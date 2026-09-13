@@ -12,6 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
+import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
@@ -53,6 +54,8 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
   });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
+  const [sessionUser, setSessionUser] = useState(null);
+  const canReport = Boolean(sessionUser?.canReport);
 
   useEffect(() => {
     setForm((current) => ({
@@ -78,6 +81,22 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
     );
   }, []);
 
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token) {
+      setSessionUser(null);
+      return;
+    }
+
+    axios
+      .get(`${API_URL}/api/auth/session`, { headers: authHeaders(token) })
+      .then((res) => setSessionUser(res.data.user))
+      .catch(() => {
+        clearAdminToken();
+        setSessionUser(null);
+      });
+  }, []);
+
   const handleChange = (e) => {
     const nextValue = e.target.value;
     setForm((current) => {
@@ -91,6 +110,12 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const token = getAdminToken();
+    if (!token || !canReport) {
+      setStatus({ type: "warning", message: "Sign in as a field reporter, reviewer, data manager, or administrator before submitting a case." });
+      return;
+    }
+
     setLoading(true);
     setStatus(null);
 
@@ -115,12 +140,16 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
         }
       }
 
-      await axios.post(`${API_URL}/api/cases`, {
-        ...form,
-        latitude: lat,
-        longitude: lng,
-        cases: Number(form.cases),
-      });
+      await axios.post(
+        `${API_URL}/api/cases`,
+        {
+          ...form,
+          latitude: lat,
+          longitude: lng,
+          cases: Number(form.cases),
+        },
+        { headers: authHeaders(token) }
+      );
 
       setStatus({ type: "success", message: "Case reported successfully!" });
       setForm((prev) => ({
@@ -141,6 +170,10 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
       }));
       if (onCaseAdded) onCaseAdded();
     } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        setSessionUser(null);
+      }
       const msg =
         err.response?.data?.errors?.[0]?.msg ||
         err.response?.data?.error ||
@@ -169,6 +202,16 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
       {status && (
         <Alert severity={status.type} onClose={() => setStatus(null)} sx={{ fontSize: "0.8rem" }}>
           {status.message}
+        </Alert>
+      )}
+
+      {canReport ? (
+        <Alert severity="success" sx={{ fontSize: "0.8rem" }}>
+          Reporting as {sessionUser.name} · {sessionUser.role}
+        </Alert>
+      ) : (
+        <Alert severity="warning" sx={{ fontSize: "0.8rem" }}>
+          Sign in from the Admin tab before submitting live case reports.
         </Alert>
       )}
 
@@ -375,7 +418,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
         type="submit"
         variant="contained"
         color="primary"
-        disabled={loading}
+        disabled={loading || !canReport}
         startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <AddLocationAltIcon />}
         fullWidth
         sx={{

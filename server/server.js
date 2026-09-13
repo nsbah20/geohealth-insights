@@ -121,6 +121,16 @@ function requireReviewerSession(req, res, next) {
   next();
 }
 
+function requireReporterSession(req, res, next) {
+  const session = readSessionToken(req);
+  if (!session || !REPORTER_ROLES.includes(session.role)) {
+    return res.status(401).json({ error: "Reporter access is required to submit cases." });
+  }
+
+  req.user = session;
+  next();
+}
+
 function requireAdminSession(req, res, next) {
   const session = readSessionToken(req);
   if (!session || !ADMIN_ROLES.includes(session.role)) {
@@ -207,6 +217,11 @@ const caseSchema = new mongoose.Schema(
     suspectedExposure: { type: String, default: "", trim: true, maxlength: 1000 },
     reportSource: { type: String, default: "Field report", trim: true },
     notes: { type: String, default: "", trim: true, maxlength: 1000 },
+    submittedBy: { type: String, default: "Unknown reporter", trim: true },
+    submittedByEmail: { type: String, default: "", trim: true },
+    submittedByRole: { type: String, default: "", trim: true },
+    submittedByFacility: { type: String, default: "", trim: true },
+    submittedByJurisdiction: { type: String, default: "", trim: true },
     reviewHistory: [
       {
         reviewedAt: { type: Date, default: Date.now },
@@ -688,6 +703,7 @@ app.get("/api/health-data", async (req, res) => {
 
 app.post(
   "/api/cases",
+  requireReporterSession,
   [
     body("disease").notEmpty().withMessage("Disease is required").trim().escape(),
     body("location").notEmpty().withMessage("Location is required").trim().escape(),
@@ -750,6 +766,27 @@ app.post(
         suspectedExposure: suspectedExposure || "",
         reportSource: reportSource || "Field report",
         notes: notes || "",
+        submittedBy: req.user.name || "Unknown reporter",
+        submittedByEmail: req.user.email || "",
+        submittedByRole: req.user.role || "",
+        submittedByFacility: req.user.facility || "",
+        submittedByJurisdiction: req.user.jurisdiction || "",
+      });
+      writeAuditLog({
+        action: "case_created",
+        actor: req.user.name || "Reporter",
+        role: req.user.role || "Reporter",
+        caseId: newCase._id,
+        caseDisease: newCase.disease,
+        caseLocation: newCase.location,
+        changedFields: ["created"],
+        metadata: {
+          cases: newCase.cases,
+          reportDate: newCase.date,
+          reporterEmail: req.user.email || "",
+          reporterFacility: req.user.facility || "",
+          reporterJurisdiction: req.user.jurisdiction || "",
+        },
       });
       res.status(201).json(newCase);
     } catch (err) {

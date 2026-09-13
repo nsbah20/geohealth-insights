@@ -94,6 +94,8 @@ function buildCsv(rows, settings) {
     "Age Group",
     "Sex",
     "Facility",
+    "Submitted By",
+    "Submitted By Role",
     "Suspected Exposure",
     "Status",
     "Priority",
@@ -113,6 +115,8 @@ function buildCsv(rows, settings) {
     row.ageGroup || "Unknown",
     row.sex || "Unknown",
     row.facility || "",
+    row.submittedBy || "Unknown reporter",
+    row.submittedByRole || "",
     row.suspectedExposure || "",
     row.status || "New",
     getPriority(row, settings),
@@ -173,6 +177,7 @@ function printPdfReport(rows, settings) {
       <td>${escapeHtml(row.ageGroup || "Unknown")}</td>
       <td>${escapeHtml(row.sex || "Unknown")}</td>
       <td>${escapeHtml(row.facility || "Not specified")}</td>
+      <td>${escapeHtml(row.submittedBy || "Unknown reporter")}</td>
       <td>${escapeHtml(row.status || "New")}</td>
       <td>${escapeHtml(getPriority(row, settings))}</td>
       <td>${escapeHtml(row.reportSource || "Field report")}</td>
@@ -207,7 +212,7 @@ function printPdfReport(rows, settings) {
         </div>
         <table>
           <thead>
-            <tr><th>Disease</th><th>Location</th><th>Cases</th><th>Report Date</th><th>Onset</th><th>Age</th><th>Sex</th><th>Facility</th><th>Status</th><th>Priority</th><th>Source</th><th>Notes</th></tr>
+            <tr><th>Disease</th><th>Location</th><th>Cases</th><th>Report Date</th><th>Onset</th><th>Age</th><th>Sex</th><th>Facility</th><th>Submitted By</th><th>Status</th><th>Priority</th><th>Source</th><th>Notes</th></tr>
           </thead>
           <tbody>${tableRows}</tbody>
         </table>
