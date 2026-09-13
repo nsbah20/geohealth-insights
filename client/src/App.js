@@ -39,6 +39,7 @@ import AddCaseForm from "./AddCaseForm";
 import CasesTable from "./CasesTable";
 import AdminConsole from "./AdminConsole";
 import demoData from "./demoData";
+import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 import { OrganizationSettingsProvider, useOrganizationSettings } from "./OrganizationSettingsContext";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
@@ -429,6 +430,7 @@ function MapView() {
   const [loadingData, setLoadingData] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [mapReady, setMapReady] = useState(false);
+  const [sessionUser, setSessionUser] = useState(null);
   const { settings: organizationSettings } = useOrganizationSettings();
   const [filters, setFilters] = useState({
     disease: "All",
@@ -442,6 +444,7 @@ function MapView() {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const markersRef = useRef([]);
+  const canExport = Boolean(sessionUser?.canAdmin);
 
   const clearMarkers = () => {
     markersRef.current.forEach((m) => m.remove());
@@ -657,6 +660,22 @@ function MapView() {
   };
 
   useEffect(() => { fetchHealthData(); }, []);
+
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token) {
+      setSessionUser(null);
+      return;
+    }
+
+    axios
+      .get(`${API_URL}/api/auth/session`, { headers: authHeaders(token) })
+      .then((res) => setSessionUser(res.data.user))
+      .catch(() => {
+        clearAdminToken();
+        setSessionUser(null);
+      });
+  }, []);
 
   useEffect(() => {
     if (!mapContainerRef.current) return undefined;
@@ -1249,11 +1268,21 @@ function MapView() {
             ))}
           </AnalyticsCard>
           <AnalyticsCard title="Exports">
+            {!canExport && (
+              <Alert severity="warning" sx={{ fontSize: "0.8rem", borderRadius: 2 }}>
+                Administrator sign-in is required before exporting surveillance reports.
+              </Alert>
+            )}
+            {canExport && (
+              <Alert severity="success" sx={{ fontSize: "0.8rem", borderRadius: 2 }}>
+                Exporting as {sessionUser.name} · {sessionUser.role}
+              </Alert>
+            )}
             <Button
               variant="contained"
               startIcon={<FileDownloadIcon />}
               onClick={() => downloadCsv(filteredData, organizationSettings)}
-              disabled={filteredData.length === 0}
+              disabled={!canExport || filteredData.length === 0}
               sx={{ justifyContent: "flex-start", bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
             >
               Export CSV
@@ -1262,13 +1291,13 @@ function MapView() {
               variant="outlined"
               startIcon={<PrintIcon />}
               onClick={() => printPdfReport(filteredData, organizationSettings)}
-              disabled={filteredData.length === 0}
+              disabled={!canExport || filteredData.length === 0}
               sx={{ justifyContent: "flex-start", fontWeight: 900 }}
             >
               Print PDF Report
             </Button>
             <Typography variant="caption" color="text.secondary">
-              Exports use the current filters and visible data source.
+              Exports use the current filters and require administrator access.
             </Typography>
           </AnalyticsCard>
         </Box>
