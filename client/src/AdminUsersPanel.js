@@ -46,6 +46,17 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatDateTime(value) {
+  if (!value) return "Not recorded";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatSessionWindow(hours) {
   const value = Number(hours) || 8;
   return `${value} ${value === 1 ? "hour" : "hours"}`;
@@ -285,6 +296,8 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                 <TableCell>Facility</TableCell>
                 <TableCell>Jurisdiction</TableCell>
                 <TableCell>Session Window</TableCell>
+                <TableCell>Last Sign-In</TableCell>
+                <TableCell>Code Updated</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Added</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -302,6 +315,8 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   <TableCell>{user.facility || "All facilities"}</TableCell>
                   <TableCell>{user.jurisdiction || settings.defaultRegion}</TableCell>
                   <TableCell>{formatSessionWindow(user.sessionDurationHours)}</TableCell>
+                  <TableCell>{formatDateTime(user.lastLoginAt)}</TableCell>
+                  <TableCell>{formatDateTime(user.accessCodeUpdatedAt)}</TableCell>
                   <TableCell>
                     <Chip label={user.status} size="small" color={user.status === "Active" ? "success" : "default"} sx={{ fontWeight: 900 }} />
                   </TableCell>

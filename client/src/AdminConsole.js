@@ -501,7 +501,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.organizationName} can now track organization users and role assignments. Next we can connect those users to individual password or single sign-on login.
+            {organizationSettings.organizationName} now supports role-based access, per-user session windows, and admin-reviewed user activity. Next we can add password reset, invite emails, and single sign-on for production institutions.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -516,7 +516,7 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            This stage stores user assignments. Full individual sign-in comes next.
+            Current sign-in uses email and assigned access codes. Password and SSO workflows can replace those codes later.
           </Typography>
         </AdminPanel>
       </Box>

@@ -313,6 +313,8 @@ const organizationUserSchema = new mongoose.Schema(
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
     sessionDurationHours: { type: Number, default: DEFAULT_SESSION_DURATION_HOURS, min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS },
     accessCodeHash: { type: String, required: true, select: false },
+    accessCodeUpdatedAt: { type: Date },
+    lastLoginAt: { type: Date },
     notes: { type: String, default: "", trim: true, maxlength: 500 },
   },
   { timestamps: true }
@@ -448,6 +450,8 @@ app.post(
         sessionDurationHours: normalizeSessionDurationHours(user.sessionDurationHours),
       };
       const sessionDurationMs = getSessionDurationMs(sessionUser.sessionDurationHours);
+      user.lastLoginAt = new Date();
+      await user.save();
 
       writeAuditLog({
         action: "organization_user_login",
@@ -575,6 +579,7 @@ app.post(
         jurisdiction: req.body.jurisdiction || "",
         sessionDurationHours: Number(req.body.sessionDurationHours) || DEFAULT_SESSION_DURATION_HOURS,
         accessCodeHash: hashAccessCode(req.body.accessCode),
+        accessCodeUpdatedAt: new Date(),
         notes: req.body.notes || "",
       });
 
@@ -642,6 +647,7 @@ app.patch(
       if (req.body.accessCode) {
         changedFields.push("accessCode");
         user.accessCodeHash = hashAccessCode(req.body.accessCode);
+        user.accessCodeUpdatedAt = new Date();
       }
       if (req.body.sessionDurationHours !== undefined) {
         const nextDuration = Number(req.body.sessionDurationHours);
