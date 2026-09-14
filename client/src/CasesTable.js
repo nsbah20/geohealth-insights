@@ -155,12 +155,13 @@ export default function CasesTable() {
     if (!sessionChecked || !canViewRegistry) return;
 
     setLoading(true);
+    const token = getAdminToken();
     axios
-      .get(`${API_URL}/api/health-data`)
+      .get(`${API_URL}/api/registry-cases`, { headers: authHeaders(token) })
       .then((res) => setCases(SHOW_DEMO_BY_DEFAULT ? [...res.data, ...demoData] : res.data))
       .catch(() => {
-        setCases(demoData);
-        setError(null);
+        setCases(SHOW_DEMO_BY_DEFAULT ? demoData : []);
+        setError(SHOW_DEMO_BY_DEFAULT ? null : "Unable to load the protected case registry.");
       })
       .finally(() => setLoading(false));
   }, [canViewRegistry, sessionChecked]);

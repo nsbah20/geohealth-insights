@@ -131,6 +131,16 @@ function requireReporterSession(req, res, next) {
   next();
 }
 
+function requireSignedInSession(req, res, next) {
+  const session = readSessionToken(req);
+  if (!session || !session.role) {
+    return res.status(401).json({ error: "Signed-in organization access is required." });
+  }
+
+  req.user = session;
+  next();
+}
+
 function requireAdminSession(req, res, next) {
   const session = readSessionToken(req);
   if (!session || !ADMIN_ROLES.includes(session.role)) {
@@ -305,6 +315,26 @@ async function getOrganizationSettings() {
     settings = await OrganizationSettings.create(DEFAULT_ORGANIZATION_SETTINGS);
   }
   return settings;
+}
+
+function serializePublicCase(caseRecord) {
+  return {
+    _id: caseRecord._id,
+    disease: caseRecord.disease,
+    location: caseRecord.location,
+    lat: caseRecord.lat,
+    lng: caseRecord.lng,
+    cases: caseRecord.cases,
+    date: caseRecord.date,
+    status: caseRecord.status,
+    priority: caseRecord.priority,
+    ageGroup: caseRecord.ageGroup,
+    sex: caseRecord.sex,
+    symptomOnsetDate: caseRecord.symptomOnsetDate,
+    facility: caseRecord.facility,
+    reportSource: caseRecord.reportSource,
+    source: "live",
+  };
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -694,10 +724,24 @@ app.get("/api/health-data", async (req, res) => {
 
   try {
     const cases = await Case.find().sort({ createdAt: -1 });
-    res.json(cases);
+    res.json(cases.map(serializePublicCase));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch cases" });
+  }
+});
+
+app.get("/api/registry-cases", requireSignedInSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const cases = await Case.find().sort({ createdAt: -1 });
+    res.json(cases);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch case registry" });
   }
 });
 
