@@ -442,31 +442,42 @@ export default function CasesTable() {
                     <TableCell align="right">{Number(c.lat).toFixed(4)}</TableCell>
                     <TableCell align="right">{Number(c.lng).toFixed(4)}</TableCell>
                     <TableCell align="right">
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Button
+                      {canReview || canDelete ? (
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          {canReview && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<EditIcon />}
+                              onClick={() => openReview(c)}
+                              disabled={String(c._id || "").startsWith("demo-")}
+                              sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                            >
+                              Review
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              startIcon={<DeleteIcon />}
+                              onClick={() => deleteCase(c)}
+                              disabled={deleting || String(c._id || "").startsWith("demo-")}
+                              sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                            >
+                              Delete
+                            </Button>
+                          )}
+                        </Stack>
+                      ) : (
+                        <Chip
+                          label="View only"
                           size="small"
                           variant="outlined"
-                          startIcon={<EditIcon />}
-                          onClick={() => openReview(c)}
-                          disabled={String(c._id || "").startsWith("demo-")}
-                          sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
-                        >
-                          Review
-                        </Button>
-                        {canDelete && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="error"
-                            startIcon={<DeleteIcon />}
-                            onClick={() => deleteCase(c)}
-                            disabled={deleting || String(c._id || "").startsWith("demo-")}
-                            sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
-                          >
-                            Delete
-                          </Button>
-                        )}
-                      </Stack>
+                          sx={{ fontWeight: 800, color: "#64748b", borderColor: "rgba(100, 116, 139, 0.35)" }}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 );
