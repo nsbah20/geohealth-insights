@@ -318,21 +318,19 @@ async function getOrganizationSettings() {
 }
 
 function serializePublicCase(caseRecord) {
+  const roundPublicCoordinate = (value) => Number(Number(value).toFixed(2));
+
   return {
     _id: caseRecord._id,
     disease: caseRecord.disease,
     location: caseRecord.location,
-    lat: caseRecord.lat,
-    lng: caseRecord.lng,
+    lat: roundPublicCoordinate(caseRecord.lat),
+    lng: roundPublicCoordinate(caseRecord.lng),
     cases: caseRecord.cases,
     date: caseRecord.date,
     status: caseRecord.status,
     priority: caseRecord.priority,
-    ageGroup: caseRecord.ageGroup,
-    sex: caseRecord.sex,
-    symptomOnsetDate: caseRecord.symptomOnsetDate,
-    facility: caseRecord.facility,
-    reportSource: caseRecord.reportSource,
+    locationPrecision: "approximate",
     source: "live",
   };
 }

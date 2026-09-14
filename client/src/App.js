@@ -524,7 +524,7 @@ function MapView() {
   }, [filteredData]);
   const facilitySignals = useMemo(() => {
     const byFacility = filteredData.reduce((acc, item) => {
-      const facility = item.facility || "Not specified";
+      const facility = item.facility || (item.locationPrecision === "approximate" ? "Public summary" : "Not specified");
       acc[facility] = (acc[facility] || 0) + item.cases;
       return acc;
     }, {});
@@ -823,13 +823,14 @@ function MapView() {
             <div class="case-popup">
               <strong>${escapeHtml(point.disease)}</strong>
               <span>${escapeHtml(point.location)}</span>
+              ${point.locationPrecision === "approximate" ? "<div>Approximate public map location</div>" : ""}
               <div><b>${escapeHtml(point.cases)}</b> reported cases</div>
               <div>${escapeHtml(formatDate(point.date))} · ${escapeHtml(priority)} priority</div>
-              <div>Onset: ${escapeHtml(point.symptomOnsetDate ? formatDate(point.symptomOnsetDate) : "Unknown")} · Age: ${escapeHtml(point.ageGroup || "Unknown")} · Sex: ${escapeHtml(point.sex || "Unknown")}</div>
+              ${(point.symptomOnsetDate || point.ageGroup || point.sex) ? `<div>Onset: ${escapeHtml(point.symptomOnsetDate ? formatDate(point.symptomOnsetDate) : "Unknown")} · Age: ${escapeHtml(point.ageGroup || "Unknown")} · Sex: ${escapeHtml(point.sex || "Unknown")}</div>` : ""}
               ${point.facility ? `<div>Facility: ${escapeHtml(point.facility)}</div>` : ""}
               ${point.suspectedExposure ? `<div>Exposure: ${escapeHtml(point.suspectedExposure)}</div>` : ""}
               <div>Status: ${escapeHtml(status)}</div>
-              <div>Source: ${escapeHtml(point.reportSource || "Field report")} · ${escapeHtml(point.source || "live")}</div>
+              <div>Source: ${escapeHtml(point.reportSource || "Public summary")} · ${escapeHtml(point.source || "live")}</div>
               ${point.notes ? `<div>${escapeHtml(point.notes)}</div>` : ""}
             </div>
           `))
@@ -947,6 +948,11 @@ function MapView() {
         {!showDemoData && liveData.length > 0 && (
           <Alert severity="success" sx={{ mt: 1.5, fontSize: "0.8rem", borderRadius: 2 }}>
             Live database records are active.
+          </Alert>
+        )}
+        {!showDemoData && liveData.some((item) => item.locationPrecision === "approximate") && (
+          <Alert severity="info" sx={{ mt: 1.5, fontSize: "0.8rem", borderRadius: 2 }}>
+            Public map locations are approximate. Exact records are restricted to signed-in staff.
           </Alert>
         )}
 
@@ -1266,14 +1272,14 @@ function MapView() {
               />
             ))}
           </AnalyticsCard>
-          <AnalyticsCard title="Facility Signals">
+          <AnalyticsCard title="Reporting Signals">
             {facilitySignals.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">No facility data available.</Typography>
+              <Typography variant="body2" color="text.secondary">No reporting signal data available.</Typography>
             ) : facilitySignals.map((item) => (
               <AnalyticsRow
                 key={item.facility}
                 primary={item.facility}
-                secondary="Reported case volume"
+                secondary="Reported public case volume"
                 value={item.cases}
                 priority={getSeverity(item.cases, organizationSettings)}
               />
