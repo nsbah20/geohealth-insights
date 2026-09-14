@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import axios from "axios";
 import {
   Box,
@@ -116,7 +117,9 @@ export default function CasesTable() {
   const [deleting, setDeleting] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const { settings: organizationSettings } = useOrganizationSettings();
+  const canViewRegistry = Boolean(adminSession?.canView);
   const canReview = Boolean(adminSession?.canReview);
   const canDelete = Boolean(adminSession?.canDelete);
 
@@ -128,6 +131,30 @@ export default function CasesTable() {
     : [];
 
   useEffect(() => {
+    const token = getAdminToken();
+    if (!token) {
+      setSessionChecked(true);
+      setLoading(false);
+      return;
+    }
+
+    axios
+      .get(`${API_URL}/api/auth/session`, { headers: authHeaders(token) })
+      .then((res) => setAdminSession(res.data.user))
+      .catch(() => {
+        clearAdminToken();
+        setAdminSession(null);
+      })
+      .finally(() => {
+        setSessionChecked(true);
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!sessionChecked || !canViewRegistry) return;
+
+    setLoading(true);
     axios
       .get(`${API_URL}/api/health-data`)
       .then((res) => setCases(SHOW_DEMO_BY_DEFAULT ? [...res.data, ...demoData] : res.data))
@@ -136,20 +163,7 @@ export default function CasesTable() {
         setError(null);
       })
       .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    const token = getAdminToken();
-    if (!token) return;
-
-    axios
-      .get(`${API_URL}/api/auth/session`, { headers: authHeaders(token) })
-      .then((res) => setAdminSession(res.data.user))
-      .catch(() => {
-        clearAdminToken();
-        setAdminSession(null);
-      });
-  }, []);
+  }, [canViewRegistry, sessionChecked]);
 
   const filtered = cases.filter(
     (c) =>
@@ -252,12 +266,49 @@ export default function CasesTable() {
     }
   };
 
-  if (loading)
+  if (loading || !sessionChecked)
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
         <CircularProgress />
       </Box>
     );
+
+  if (!canViewRegistry) {
+    return (
+      <Box sx={{ minHeight: "calc(100vh - 72px)", bgcolor: "#eef4f2", p: 3 }}>
+        <Box
+          sx={{
+            maxWidth: 780,
+            mx: "auto",
+            mt: 8,
+            p: 4,
+            borderRadius: 2,
+            bgcolor: "white",
+            border: "1px solid rgba(15, 23, 42, 0.08)",
+            boxShadow: "0 22px 55px rgba(15, 23, 42, 0.10)",
+          }}
+        >
+          <Typography variant="h4" fontWeight={900} color="#102a2c" gutterBottom>
+            Staff Sign-In Required
+          </Typography>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            The detailed case registry is restricted to signed-in organization users. Guests can still view the public surveillance map.
+          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Sign in as a field reporter, reviewer, data manager, or administrator to view submitted case records.
+          </Typography>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            <Button component={Link} to="/admin" variant="contained" sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}>
+              Go to Sign In
+            </Button>
+            <Button component={Link} to="/" variant="outlined" sx={{ fontWeight: 900 }}>
+              Return to Map
+            </Button>
+          </Stack>
+        </Box>
+      </Box>
+    );
+  }
 
   if (error)
     return (
