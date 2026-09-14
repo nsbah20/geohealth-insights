@@ -12,7 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
-import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
+import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpired } from "./auth";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
@@ -55,7 +55,9 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
   const [sessionUser, setSessionUser] = useState(null);
+  const [sessionTick, setSessionTick] = useState(0);
   const canReport = Boolean(sessionUser?.canReport);
+  const sessionTimeRemaining = sessionTick >= 0 && sessionUser ? formatSessionTimeRemaining(sessionUser) : "";
 
   useEffect(() => {
     setForm((current) => ({
@@ -96,6 +98,25 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
         setSessionUser(null);
       });
   }, []);
+
+  useEffect(() => {
+    if (!sessionUser) return undefined;
+
+    const checkSession = () => {
+      if (!isSessionExpired(sessionUser)) return;
+      clearAdminToken();
+      setSessionUser(null);
+      setStatus({ type: "warning", message: "Session expired. Sign in again before submitting a live case report." });
+    };
+
+    checkSession();
+    const interval = window.setInterval(() => {
+      setSessionTick((current) => current + 1);
+      checkSession();
+    }, 60000);
+
+    return () => window.clearInterval(interval);
+  }, [sessionUser]);
 
   const handleChange = (e) => {
     const nextValue = e.target.value;
@@ -207,7 +228,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
 
       {canReport ? (
         <Alert severity="success" sx={{ fontSize: "0.8rem" }}>
-          Reporting as {sessionUser.name} · {sessionUser.role}
+          Reporting as {sessionUser.name} · {sessionUser.role}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
         </Alert>
       ) : (
         <Alert severity="warning" sx={{ fontSize: "0.8rem" }}>

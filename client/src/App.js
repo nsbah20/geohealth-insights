@@ -39,7 +39,7 @@ import AddCaseForm from "./AddCaseForm";
 import CasesTable from "./CasesTable";
 import AdminConsole from "./AdminConsole";
 import demoData from "./demoData";
-import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
+import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpired } from "./auth";
 import { OrganizationSettingsProvider, useOrganizationSettings } from "./OrganizationSettingsContext";
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
@@ -431,6 +431,7 @@ function MapView() {
   const [apiError, setApiError] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const [sessionUser, setSessionUser] = useState(null);
+  const [sessionTick, setSessionTick] = useState(0);
   const { settings: organizationSettings } = useOrganizationSettings();
   const [filters, setFilters] = useState({
     disease: "All",
@@ -445,6 +446,7 @@ function MapView() {
   const mapContainerRef = useRef(null);
   const markersRef = useRef([]);
   const canExport = Boolean(sessionUser?.canAdmin);
+  const sessionTimeRemaining = sessionTick >= 0 && sessionUser ? formatSessionTimeRemaining(sessionUser) : "";
 
   const clearMarkers = () => {
     markersRef.current.forEach((m) => m.remove());
@@ -701,6 +703,24 @@ function MapView() {
         setSessionUser(null);
       });
   }, []);
+
+  useEffect(() => {
+    if (!sessionUser) return undefined;
+
+    const checkSession = () => {
+      if (!isSessionExpired(sessionUser)) return;
+      clearAdminToken();
+      setSessionUser(null);
+    };
+
+    checkSession();
+    const interval = window.setInterval(() => {
+      setSessionTick((current) => current + 1);
+      checkSession();
+    }, 60000);
+
+    return () => window.clearInterval(interval);
+  }, [sessionUser]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return undefined;
@@ -1306,7 +1326,7 @@ function MapView() {
             )}
             {canExport && (
               <Alert severity="success" sx={{ fontSize: "0.8rem", borderRadius: 2 }}>
-                Exporting as {sessionUser.name} · {sessionUser.role}
+                Exporting as {sessionUser.name} · {sessionUser.role}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
               </Alert>
             )}
             <Button

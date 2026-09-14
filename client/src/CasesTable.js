@@ -29,7 +29,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import demoData from "./demoData";
-import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
+import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, getSessionTimeRemaining, isSessionExpired } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
@@ -118,10 +118,13 @@ export default function CasesTable() {
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [sessionTick, setSessionTick] = useState(0);
   const { settings: organizationSettings } = useOrganizationSettings();
   const canViewRegistry = Boolean(adminSession?.canView);
   const canReview = Boolean(adminSession?.canReview);
   const canDelete = Boolean(adminSession?.canDelete);
+  const sessionTimeRemaining = sessionTick >= 0 && adminSession ? formatSessionTimeRemaining(adminSession) : "";
+  const sessionExpiringSoon = adminSession && (getSessionTimeRemaining(adminSession) || 0) <= 15 * 60 * 1000;
 
   const reportSourceOptions = organizationSettings?.reportSourceList?.length
     ? organizationSettings.reportSourceList
@@ -165,6 +168,26 @@ export default function CasesTable() {
       })
       .finally(() => setLoading(false));
   }, [canViewRegistry, sessionChecked]);
+
+  useEffect(() => {
+    if (!adminSession) return undefined;
+
+    const checkSession = () => {
+      if (!isSessionExpired(adminSession)) return;
+      clearAdminToken();
+      setAdminSession(null);
+      setSelectedCase(null);
+      setSaveMessage({ type: "warning", text: "Session expired. Sign in again to access case records." });
+    };
+
+    checkSession();
+    const interval = window.setInterval(() => {
+      setSessionTick((current) => current + 1);
+      checkSession();
+    }, 60000);
+
+    return () => window.clearInterval(interval);
+  }, [adminSession]);
 
   const filtered = cases.filter(
     (c) =>
@@ -364,6 +387,15 @@ export default function CasesTable() {
             size="small"
             sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", md: "flex-end" } }}
           />
+          {adminSession && sessionTimeRemaining && (
+            <Chip
+              label={`${sessionTimeRemaining} remaining`}
+              color={sessionExpiringSoon ? "warning" : "success"}
+              variant="outlined"
+              size="small"
+              sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", md: "flex-end" } }}
+            />
+          )}
         </Stack>
       </Stack>
 

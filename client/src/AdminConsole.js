@@ -29,7 +29,16 @@ import SecurityIcon from "@mui/icons-material/Security";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
-import { authHeaders, clearAdminToken, getAdminToken, setAdminToken } from "./auth";
+import {
+  authHeaders,
+  clearAdminToken,
+  formatSessionExpiry,
+  formatSessionTimeRemaining,
+  getAdminToken,
+  getSessionTimeRemaining,
+  isSessionExpired,
+  setAdminToken,
+} from "./auth";
 import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 import AdminUsersPanel from "./AdminUsersPanel";
@@ -196,6 +205,7 @@ export default function AdminConsole() {
   const [signingIn, setSigningIn] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditError, setAuditError] = useState(null);
+  const [sessionTick, setSessionTick] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -287,6 +297,25 @@ export default function AdminConsole() {
     setAuthMessage({ type: "info", text: "Admin session ended." });
   };
 
+  useEffect(() => {
+    if (!authUser) return undefined;
+
+    const checkSession = () => {
+      if (!isSessionExpired(authUser)) return;
+      clearAdminToken();
+      setAuthUser(null);
+      setAuthMessage({ type: "warning", text: "Session expired. Sign in again to continue." });
+    };
+
+    checkSession();
+    const interval = window.setInterval(() => {
+      setSessionTick((current) => current + 1);
+      checkSession();
+    }, 60000);
+
+    return () => window.clearInterval(interval);
+  }, [authUser]);
+
   const readinessItems = useMemo(
     () => baseReadinessItems.map((item) => (
       item.label === "Admin access gate" && !authUser
@@ -301,6 +330,8 @@ export default function AdminConsole() {
     return Math.round((complete / readinessItems.length) * 100);
   }, [readinessItems]);
   const canAdmin = Boolean(authUser?.canAdmin);
+  const sessionTimeRemaining = sessionTick >= 0 && authUser ? formatSessionTimeRemaining(authUser) : "";
+  const sessionExpiringSoon = authUser && (getSessionTimeRemaining(authUser) || 0) <= 15 * 60 * 1000;
 
   const handleUnauthorized = useCallback(() => {
     setAuthUser(null);
@@ -523,6 +554,9 @@ export default function AdminConsole() {
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Role: {authUser.role}. {authUser.canAdmin ? "This session can manage users and settings." : authUser.canReview ? "This session can save case review updates." : "This session can access assigned organization workflows."}
+                </Typography>
+                <Typography variant="caption" color={sessionExpiringSoon ? "warning.main" : "text.secondary"} display="block" sx={{ mt: 0.5, fontWeight: 700 }}>
+                  Session active until {formatSessionExpiry(authUser)}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
                 </Typography>
               </Box>
               <Button
