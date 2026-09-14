@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import ToggleOffIcon from "@mui/icons-material/ToggleOff";
 import ToggleOnIcon from "@mui/icons-material/ToggleOn";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
@@ -26,12 +27,15 @@ import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Reporter", "Institution Viewer", "Data Manager"];
+const MIN_SESSION_DURATION_HOURS = 1;
+const MAX_SESSION_DURATION_HOURS = 24;
 
 const emptyForm = {
   fullName: "",
   email: "",
   accessCode: "",
   role: "Field Reporter",
+  sessionDurationHours: 8,
   facility: "",
   jurisdiction: "",
   notes: "",
@@ -40,6 +44,11 @@ const emptyForm = {
 function formatDate(value) {
   if (!value) return "Not recorded";
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatSessionWindow(hours) {
+  const value = Number(hours) || 8;
+  return `${value} ${value === 1 ? "hour" : "hours"}`;
 }
 
 export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged }) {
@@ -133,6 +142,45 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     }
   };
 
+  const updateSessionDuration = async (user) => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    const currentDuration = Number(user.sessionDurationHours) || 8;
+    const nextDuration = window.prompt(
+      `Set approved session duration for ${user.fullName} in hours (${MIN_SESSION_DURATION_HOURS}-${MAX_SESSION_DURATION_HOURS}).`,
+      String(currentDuration)
+    );
+    if (!nextDuration) return;
+    const nextDurationNumber = Number(nextDuration);
+    if (
+      !Number.isFinite(nextDurationNumber) ||
+      nextDurationNumber < MIN_SESSION_DURATION_HOURS ||
+      nextDurationNumber > MAX_SESSION_DURATION_HOURS
+    ) {
+      setMessage({ type: "warning", text: `Session time must be between ${MIN_SESSION_DURATION_HOURS} and ${MAX_SESSION_DURATION_HOURS} hours.` });
+      return;
+    }
+
+    try {
+      const res = await axios.patch(
+        `${API_URL}/api/admin/users/${user._id}`,
+        { sessionDurationHours: nextDurationNumber },
+        { headers: authHeaders(token) }
+      );
+      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
+      setMessage({ type: "success", text: `Session time updated for ${user.fullName}.` });
+      onChanged?.();
+    } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        onUnauthorized?.();
+      }
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to update session time.";
+      setMessage({ type: "error", text });
+    }
+  };
+
   const toggleStatus = async (user) => {
     const token = getAdminToken();
     if (!token) return;
@@ -178,6 +226,17 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
               <MenuItem key={role} value={role}>{role}</MenuItem>
             ))}
           </TextField>
+          <TextField
+            label="Session Hours"
+            name="sessionDurationHours"
+            type="number"
+            value={form.sessionDurationHours}
+            onChange={handleChange}
+            size="small"
+            required
+            fullWidth
+            inputProps={{ min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS, step: 0.5 }}
+          />
         </Stack>
         <Stack direction={{ xs: "column", lg: "row" }} spacing={1.2} sx={{ mt: 1.2 }}>
           <TextField
@@ -225,6 +284,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                 <TableCell>Role</TableCell>
                 <TableCell>Facility</TableCell>
                 <TableCell>Jurisdiction</TableCell>
+                <TableCell>Session Window</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Added</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -241,12 +301,22 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.facility || "All facilities"}</TableCell>
                   <TableCell>{user.jurisdiction || settings.defaultRegion}</TableCell>
+                  <TableCell>{formatSessionWindow(user.sessionDurationHours)}</TableCell>
                   <TableCell>
                     <Chip label={user.status} size="small" color={user.status === "Active" ? "success" : "default"} sx={{ fontWeight: 900 }} />
                   </TableCell>
                   <TableCell>{formatDate(user.createdAt)}</TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<AccessTimeIcon />}
+                        onClick={() => updateSessionDuration(user)}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Set Time
+                      </Button>
                       <Button
                         size="small"
                         variant="outlined"

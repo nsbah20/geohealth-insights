@@ -33,6 +33,9 @@ const DEFAULT_ORGANIZATION_SETTINGS = {
   reportSourceList: ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"],
 };
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const DEFAULT_SESSION_DURATION_HOURS = 8;
+const MIN_SESSION_DURATION_HOURS = 1;
+const MAX_SESSION_DURATION_HOURS = 24;
 const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE;
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.MONGODB_URI || "geohealth-dev-session-secret";
 mongoose.set("bufferCommands", false);
@@ -74,7 +77,20 @@ function signPayload(payload) {
     .digest("base64url");
 }
 
-function createSessionToken(user) {
+function normalizeSessionDurationHours(durationHours = DEFAULT_SESSION_DURATION_HOURS) {
+  const hours = Number(durationHours);
+  return Math.min(
+    MAX_SESSION_DURATION_HOURS,
+    Math.max(MIN_SESSION_DURATION_HOURS, Number.isFinite(hours) ? hours : DEFAULT_SESSION_DURATION_HOURS)
+  );
+}
+
+function getSessionDurationMs(durationHours = DEFAULT_SESSION_DURATION_HOURS) {
+  return normalizeSessionDurationHours(durationHours) * 60 * 60 * 1000;
+}
+
+function createSessionToken(user, durationMs = SESSION_TTL_MS) {
+  const sessionDurationHours = normalizeSessionDurationHours(user.sessionDurationHours);
   const payload = base64UrlEncode({
     sub: user.id,
     name: user.name,
@@ -82,7 +98,8 @@ function createSessionToken(user) {
     role: user.role,
     facility: user.facility || "",
     jurisdiction: user.jurisdiction || "",
-    exp: Date.now() + SESSION_TTL_MS,
+    sessionDurationHours,
+    exp: Date.now() + durationMs,
   });
   return `${payload}.${signPayload(payload)}`;
 }
@@ -170,6 +187,7 @@ function buildSessionUser(session) {
     facility: session.facility || "",
     jurisdiction: session.jurisdiction || "",
     expiresAt: new Date(session.exp).toISOString(),
+    sessionDurationHours: normalizeSessionDurationHours(session.sessionDurationHours),
     canAdmin: ADMIN_ROLES.includes(role),
     canReview: REVIEWER_ROLES.includes(role),
     canReport: REPORTER_ROLES.includes(role),
@@ -293,6 +311,7 @@ const organizationUserSchema = new mongoose.Schema(
     facility: { type: String, default: "", trim: true },
     jurisdiction: { type: String, default: "", trim: true },
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
+    sessionDurationHours: { type: Number, default: DEFAULT_SESSION_DURATION_HOURS, min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS },
     accessCodeHash: { type: String, required: true, select: false },
     notes: { type: String, default: "", trim: true, maxlength: 500 },
   },
@@ -426,7 +445,9 @@ app.post(
         role: user.role,
         facility: user.facility,
         jurisdiction: user.jurisdiction,
+        sessionDurationHours: normalizeSessionDurationHours(user.sessionDurationHours),
       };
+      const sessionDurationMs = getSessionDurationMs(sessionUser.sessionDurationHours);
 
       writeAuditLog({
         action: "organization_user_login",
@@ -435,13 +456,14 @@ app.post(
         metadata: {
           userEmail: user.email,
           userRole: user.role,
+          sessionDurationHours: sessionUser.sessionDurationHours,
           source: "organization_user_login",
         },
       });
 
       res.json({
-        token: createSessionToken(sessionUser),
-        user: buildSessionUser({ ...sessionUser, exp: Date.now() + SESSION_TTL_MS }),
+        token: createSessionToken(sessionUser, sessionDurationMs),
+        user: buildSessionUser({ ...sessionUser, exp: Date.now() + sessionDurationMs }),
       });
     } catch (err) {
       console.error(err);
@@ -526,6 +548,10 @@ app.post(
     body("email").isEmail().withMessage("A valid email is required").normalizeEmail(),
     body("accessCode").isLength({ min: 6, max: 80 }).withMessage("Access code must be at least 6 characters").trim(),
     body("role").isIn(USER_ROLES).withMessage("Invalid role"),
+    body("sessionDurationHours")
+      .optional({ checkFalsy: true })
+      .isFloat({ min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS })
+      .withMessage(`Session duration must be between ${MIN_SESSION_DURATION_HOURS} and ${MAX_SESSION_DURATION_HOURS} hours`),
     body("facility").optional({ checkFalsy: true }).trim().escape(),
     body("jurisdiction").optional({ checkFalsy: true }).trim().escape(),
     body("notes").optional({ checkFalsy: true }).trim().isLength({ max: 500 }).withMessage("Notes must be 500 characters or fewer").escape(),
@@ -547,6 +573,7 @@ app.post(
         role: req.body.role,
         facility: req.body.facility || "",
         jurisdiction: req.body.jurisdiction || "",
+        sessionDurationHours: Number(req.body.sessionDurationHours) || DEFAULT_SESSION_DURATION_HOURS,
         accessCodeHash: hashAccessCode(req.body.accessCode),
         notes: req.body.notes || "",
       });
@@ -555,11 +582,12 @@ app.post(
         action: "organization_user_created",
         actor: req.user.name || "Admin",
         role: req.user.role || "Admin",
-        changedFields: ["fullName", "email", "role", "facility", "jurisdiction"],
+        changedFields: ["fullName", "email", "role", "facility", "jurisdiction", "sessionDurationHours"],
         metadata: {
           userEmail: user.email,
           userRole: user.role,
           userStatus: user.status,
+          sessionDurationHours: user.sessionDurationHours,
           credential: "access_code_created",
         },
       });
@@ -581,6 +609,10 @@ app.patch(
   [
     body("status").optional().isIn(["Active", "Inactive"]).withMessage("Invalid user status"),
     body("accessCode").optional({ checkFalsy: true }).isLength({ min: 6, max: 80 }).withMessage("Access code must be at least 6 characters").trim(),
+    body("sessionDurationHours")
+      .optional()
+      .isFloat({ min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS })
+      .withMessage(`Session duration must be between ${MIN_SESSION_DURATION_HOURS} and ${MAX_SESSION_DURATION_HOURS} hours`),
   ],
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
@@ -611,6 +643,13 @@ app.patch(
         changedFields.push("accessCode");
         user.accessCodeHash = hashAccessCode(req.body.accessCode);
       }
+      if (req.body.sessionDurationHours !== undefined) {
+        const nextDuration = Number(req.body.sessionDurationHours);
+        if (user.sessionDurationHours !== nextDuration) {
+          changedFields.push("sessionDurationHours");
+          user.sessionDurationHours = nextDuration;
+        }
+      }
       if (!user.accessCodeHash) {
         return res.status(400).json({ error: "Set an access code for this user before changing access status." });
       }
@@ -626,6 +665,7 @@ app.patch(
             userEmail: updatedUser.email,
             userRole: updatedUser.role,
             userStatus: updatedUser.status,
+            sessionDurationHours: updatedUser.sessionDurationHours,
           },
         });
       }
