@@ -94,6 +94,8 @@ function formatAction(action) {
   if (action === "case_created") return "Case submitted";
   if (action === "case_review_updated") return "Case review updated";
   if (action === "case_deleted") return "Case deleted";
+  if (action === "case_csv_exported") return "CSV exported";
+  if (action === "case_pdf_printed") return "PDF report printed";
   if (action === "organization_settings_updated") return "Organization settings updated";
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";

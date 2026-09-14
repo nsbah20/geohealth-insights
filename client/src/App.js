@@ -592,6 +592,31 @@ function MapView() {
     setFilters({ disease: "All", status: "All", priority: "All", ageGroup: "All", sex: "All", startDate: "", endDate: "" });
   };
 
+  const recordExportEvent = (exportType) => {
+    if (!canExport) return;
+
+    const token = getAdminToken();
+    if (!token) return;
+
+    axios
+      .post(
+        `${API_URL}/api/admin/export-events`,
+        {
+          exportType,
+          recordCount: filteredData.length,
+          totalCases: filteredData.reduce((sum, item) => sum + item.cases, 0),
+          filters,
+        },
+        { headers: authHeaders(token) }
+      )
+      .catch((err) => {
+        if (err.response?.status === 401) {
+          clearAdminToken();
+          setSessionUser(null);
+        }
+      });
+  };
+
   const fitMapToCases = useCallback((duration = 900) => {
     if (!mapRef.current || filteredData.length === 0) return;
 
@@ -1281,7 +1306,10 @@ function MapView() {
             <Button
               variant="contained"
               startIcon={<FileDownloadIcon />}
-              onClick={() => downloadCsv(filteredData, organizationSettings)}
+              onClick={() => {
+                recordExportEvent("csv");
+                downloadCsv(filteredData, organizationSettings);
+              }}
               disabled={!canExport || filteredData.length === 0}
               sx={{ justifyContent: "flex-start", bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
             >
@@ -1290,7 +1318,10 @@ function MapView() {
             <Button
               variant="outlined"
               startIcon={<PrintIcon />}
-              onClick={() => printPdfReport(filteredData, organizationSettings)}
+              onClick={() => {
+                printPdfReport(filteredData, organizationSettings);
+                recordExportEvent("pdf");
+              }}
               disabled={!canExport || filteredData.length === 0}
               sx={{ justifyContent: "flex-start", fontWeight: 900 }}
             >

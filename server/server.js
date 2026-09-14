@@ -466,6 +466,46 @@ app.get("/api/admin/audit-logs", requireAdminSession, async (req, res) => {
   }
 });
 
+app.post(
+  "/api/admin/export-events",
+  requireAdminSession,
+  [
+    body("exportType").isIn(["csv", "pdf"]).withMessage("Invalid export type"),
+    body("recordCount").isInt({ min: 0, max: 1000000 }).withMessage("Record count must be a valid number"),
+    body("totalCases").isInt({ min: 0, max: 100000000 }).withMessage("Total cases must be a valid number"),
+    body("filters").optional().isObject().withMessage("Filters must be an object"),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const exportType = req.body.exportType;
+      await writeAuditLog({
+        action: exportType === "csv" ? "case_csv_exported" : "case_pdf_printed",
+        actor: req.user.name || "Administrator",
+        role: req.user.role || "Administrator",
+        changedFields: [exportType === "csv" ? "csv_export" : "pdf_print"],
+        metadata: {
+          recordCount: Number(req.body.recordCount) || 0,
+          totalCases: Number(req.body.totalCases) || 0,
+          filters: req.body.filters || {},
+        },
+      });
+      res.json({ recorded: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to record export event" });
+    }
+  }
+);
+
 app.get("/api/admin/users", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
