@@ -1,4 +1,5 @@
 export const ADMIN_TOKEN_KEY = "geohealth_admin_token";
+export const SESSION_EXPIRY_WARNING_MS = 5 * 60 * 1000;
 
 export function getAdminToken() {
   return window.localStorage.getItem(ADMIN_TOKEN_KEY);
@@ -26,6 +27,11 @@ export function getSessionTimeRemaining(user) {
 export function isSessionExpired(user) {
   const remaining = getSessionTimeRemaining(user);
   return remaining !== null && remaining <= 0;
+}
+
+export function isSessionExpiringSoon(user, warningMs = SESSION_EXPIRY_WARNING_MS) {
+  const remaining = getSessionTimeRemaining(user);
+  return remaining !== null && remaining > 0 && remaining <= warningMs;
 }
 
 export function formatSessionExpiry(user) {

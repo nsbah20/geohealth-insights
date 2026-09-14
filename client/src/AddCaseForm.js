@@ -12,7 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
-import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpired } from "./auth";
+import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpiringSoon, isSessionExpired } from "./auth";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
@@ -58,6 +58,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
   const [sessionTick, setSessionTick] = useState(0);
   const canReport = Boolean(sessionUser?.canReport);
   const sessionTimeRemaining = sessionTick >= 0 && sessionUser ? formatSessionTimeRemaining(sessionUser) : "";
+  const sessionExpiringSoon = sessionUser && isSessionExpiringSoon(sessionUser);
 
   useEffect(() => {
     setForm((current) => ({
@@ -233,6 +234,12 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
       ) : (
         <Alert severity="warning" sx={{ fontSize: "0.8rem" }}>
           Sign in from the Admin tab before submitting live case reports.
+        </Alert>
+      )}
+
+      {sessionExpiringSoon && (
+        <Alert severity="warning" sx={{ fontSize: "0.8rem" }}>
+          Your session is almost up. Sign out and sign back in if you need more time to finish reporting.
         </Alert>
       )}
 

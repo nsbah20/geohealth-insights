@@ -29,7 +29,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import demoData from "./demoData";
-import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, getSessionTimeRemaining, isSessionExpired } from "./auth";
+import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpiringSoon, isSessionExpired } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
@@ -124,7 +124,7 @@ export default function CasesTable() {
   const canReview = Boolean(adminSession?.canReview);
   const canDelete = Boolean(adminSession?.canDelete);
   const sessionTimeRemaining = sessionTick >= 0 && adminSession ? formatSessionTimeRemaining(adminSession) : "";
-  const sessionExpiringSoon = adminSession && (getSessionTimeRemaining(adminSession) || 0) <= 15 * 60 * 1000;
+  const sessionExpiringSoon = adminSession && isSessionExpiringSoon(adminSession);
 
   const reportSourceOptions = organizationSettings?.reportSourceList?.length
     ? organizationSettings.reportSourceList
@@ -402,6 +402,12 @@ export default function CasesTable() {
       {!canReview && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Case review updates are protected now. Sign in as an administrator, epidemiology reviewer, or data manager before saving review changes.
+        </Alert>
+      )}
+
+      {sessionExpiringSoon && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Your session is almost up. Sign out and sign back in if you need more time to continue reviewing records.
         </Alert>
       )}
 

@@ -35,7 +35,7 @@ import {
   formatSessionExpiry,
   formatSessionTimeRemaining,
   getAdminToken,
-  getSessionTimeRemaining,
+  isSessionExpiringSoon,
   isSessionExpired,
   setAdminToken,
 } from "./auth";
@@ -331,7 +331,7 @@ export default function AdminConsole() {
   }, [readinessItems]);
   const canAdmin = Boolean(authUser?.canAdmin);
   const sessionTimeRemaining = sessionTick >= 0 && authUser ? formatSessionTimeRemaining(authUser) : "";
-  const sessionExpiringSoon = authUser && (getSessionTimeRemaining(authUser) || 0) <= 15 * 60 * 1000;
+  const sessionExpiringSoon = authUser && isSessionExpiringSoon(authUser);
 
   const handleUnauthorized = useCallback(() => {
     setAuthUser(null);
@@ -558,6 +558,11 @@ export default function AdminConsole() {
                 <Typography variant="caption" color={sessionExpiringSoon ? "warning.main" : "text.secondary"} display="block" sx={{ mt: 0.5, fontWeight: 700 }}>
                   Session active until {formatSessionExpiry(authUser)}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
                 </Typography>
+                {sessionExpiringSoon && (
+                  <Alert severity="warning" sx={{ mt: 1.2, fontSize: "0.8rem", borderRadius: 2 }}>
+                    Your session is almost up. Sign out and sign back in if you need more time.
+                  </Alert>
+                )}
               </Box>
               <Button
                 variant="outlined"
