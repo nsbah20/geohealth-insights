@@ -872,17 +872,27 @@ export default function CasesTable() {
                       label="Reported Location"
                       name="location"
                       size="small"
-                      helperText="Start typing a city or place, then choose a match to update the map coordinates."
+                      helperText="Choose a suggestion, or search to update map coordinates."
                     />
                   )}
                 />
                 <Button
                   variant="outlined"
+                  startIcon={<SearchIcon />}
                   onClick={applyGeocodedLocation}
                   disabled={findingLocation || !editForm.location.trim()}
-                  sx={{ fontWeight: 900, whiteSpace: "nowrap", minHeight: 40 }}
+                  aria-label="Search map coordinates"
+                  sx={{
+                    fontWeight: 900,
+                    whiteSpace: "nowrap",
+                    minHeight: 40,
+                    width: { xs: "100%", sm: 126 },
+                    flexShrink: 0,
+                    borderRadius: 1.5,
+                    letterSpacing: 0,
+                  }}
                 >
-                  {findingLocation ? "Finding..." : "Find Map Coordinates"}
+                  {findingLocation ? "Finding" : "Search"}
                 </Button>
               </Stack>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
