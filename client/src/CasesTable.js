@@ -33,6 +33,7 @@ import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
 
 const PRIORITY_COLORS = {
@@ -105,6 +106,35 @@ function getLastReview(caseRecord) {
     .sort((a, b) => parseDateValue(b.reviewedAt) - parseDateValue(a.reviewedAt))[0];
 }
 
+async function geocodeLocation(location) {
+  if (!MAPBOX_TOKEN) {
+    throw new Error("Mapbox token is not configured for location lookup.");
+  }
+
+  const query = String(location || "").trim();
+  if (!query) {
+    throw new Error("Enter a location before finding map coordinates.");
+  }
+
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&types=place,locality,neighborhood,address,poi&access_token=${MAPBOX_TOKEN}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Location lookup failed. Try again or enter coordinates manually.");
+  }
+
+  const data = await response.json();
+  const [lng, lat] = data.features?.[0]?.center || [];
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+    throw new Error("No map coordinates were found for that location.");
+  }
+
+  return {
+    latitude: Number(lat).toFixed(6),
+    longitude: Number(lng).toFixed(6),
+    placeName: data.features[0].place_name,
+  };
+}
+
 export default function CasesTable() {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,6 +160,7 @@ export default function CasesTable() {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [findingLocation, setFindingLocation] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -253,6 +284,30 @@ export default function CasesTable() {
     setEditForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
+  const applyGeocodedLocation = async () => {
+    setFindingLocation(true);
+    setSaveMessage(null);
+
+    try {
+      const result = await geocodeLocation(editForm.location);
+      setEditForm((current) => ({
+        ...current,
+        latitude: result.latitude,
+        longitude: result.longitude,
+        locationSource: "Admin corrected",
+        locationVerification: "Admin corrected",
+        locationReviewReason: current.locationReviewReason || `Map coordinates matched from ${result.placeName}.`,
+      }));
+      setSaveMessage({ type: "success", text: `Map coordinates found for ${result.placeName}. Save the review to move the marker.` });
+      return result;
+    } catch (err) {
+      setSaveMessage({ type: "error", text: err.message || "Unable to find map coordinates for this location." });
+      return null;
+    } finally {
+      setFindingLocation(false);
+    }
+  };
+
   const saveReview = async () => {
     if (!selectedCase?._id || String(selectedCase._id).startsWith("demo-")) return;
     const token = getAdminToken();
@@ -265,7 +320,30 @@ export default function CasesTable() {
     setSaveMessage(null);
 
     try {
-      const res = await axios.patch(`${API_URL}/api/cases/${selectedCase._id}`, editForm, { headers: authHeaders(token) });
+      const locationChanged = String(editForm.location || "").trim() !== String(selectedCase.location || "").trim();
+      const coordinatesUnchanged =
+        String(editForm.latitude || "") === String(selectedCase.lat ?? "") &&
+        String(editForm.longitude || "") === String(selectedCase.lng ?? "");
+      const shouldGeocodeAdminCorrection =
+        editForm.locationSource === "Admin corrected" &&
+        editForm.locationVerification === "Admin corrected" &&
+        coordinatesUnchanged;
+      let payload = { ...editForm };
+
+      if ((locationChanged && coordinatesUnchanged) || shouldGeocodeAdminCorrection) {
+        const result = await geocodeLocation(editForm.location);
+        payload = {
+          ...payload,
+          latitude: result.latitude,
+          longitude: result.longitude,
+          locationSource: "Admin corrected",
+          locationVerification: "Admin corrected",
+          locationReviewReason: payload.locationReviewReason || `Map coordinates matched from ${result.placeName}.`,
+        };
+        setEditForm((current) => ({ ...current, ...payload }));
+      }
+
+      const res = await axios.patch(`${API_URL}/api/cases/${selectedCase._id}`, payload, { headers: authHeaders(token) });
       setCases((current) => current.map((item) => (item._id === selectedCase._id ? res.data : item)));
       setSelectedCase(res.data);
       setSaveMessage({ type: "success", text: "Case review updated." });
@@ -275,7 +353,7 @@ export default function CasesTable() {
         clearAdminToken();
         setAdminSession(null);
       }
-      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to update this case.";
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || err.message || "Unable to update this case.";
       setSaveMessage({ type: "error", text });
     } finally {
       setSaving(false);
@@ -689,15 +767,25 @@ export default function CasesTable() {
               <Typography variant="subtitle2" fontWeight={900} color="#102a2c">
                 Location Verification
               </Typography>
-              <TextField
-                label="Reported Location"
-                name="location"
-                value={editForm.location}
-                onChange={handleEditChange}
-                size="small"
-                fullWidth
-                helperText="This is the place name staff see in the registry and dashboard."
-              />
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ xs: "stretch", sm: "flex-start" }}>
+                <TextField
+                  label="Reported Location"
+                  name="location"
+                  value={editForm.location}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                  helperText="This is the place name staff see in the registry and dashboard."
+                />
+                <Button
+                  variant="outlined"
+                  onClick={applyGeocodedLocation}
+                  disabled={findingLocation || !editForm.location.trim()}
+                  sx={{ fontWeight: 900, whiteSpace: "nowrap", minHeight: 40 }}
+                >
+                  {findingLocation ? "Finding..." : "Find Map Coordinates"}
+                </Button>
+              </Stack>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
                 <TextField
                   label="Map Latitude"
@@ -919,12 +1007,12 @@ export default function CasesTable() {
               {deleting ? "Deleting..." : "Delete Case"}
             </Button>
           )}
-          <Button onClick={closeReview} disabled={saving || deleting} sx={{ fontWeight: 800 }}>
+          <Button onClick={closeReview} disabled={saving || deleting || findingLocation} sx={{ fontWeight: 800 }}>
             Close
           </Button>
           <Button
             onClick={saveReview}
-            disabled={saving || deleting || !canReview || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
+            disabled={saving || deleting || findingLocation || !canReview || !selectedCase || String(selectedCase._id || "").startsWith("demo-")}
             variant="contained"
             sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
           >
