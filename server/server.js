@@ -36,6 +36,8 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_SESSION_DURATION_HOURS = 8;
 const MIN_SESSION_DURATION_HOURS = 1;
 const MAX_SESSION_DURATION_HOURS = 24;
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE;
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.MONGODB_URI || "geohealth-dev-session-secret";
 mongoose.set("bufferCommands", false);
@@ -315,6 +317,8 @@ const organizationUserSchema = new mongoose.Schema(
     accessCodeHash: { type: String, required: true, select: false },
     accessCodeUpdatedAt: { type: Date },
     lastLoginAt: { type: Date },
+    failedLoginAttempts: { type: Number, default: 0, min: 0 },
+    lockedUntil: { type: Date },
     notes: { type: String, default: "", trim: true, maxlength: 500 },
   },
   { timestamps: true }
@@ -436,7 +440,33 @@ app.post(
 
     try {
       const user = await OrganizationUser.findOne({ email: req.body.email }).select("+accessCodeHash");
-      if (!user || user.status !== "Active" || !verifyAccessCode(req.body.accessCode, user.accessCodeHash)) {
+      if (!user || user.status !== "Active") {
+        return res.status(401).json({ error: "Invalid email or access code." });
+      }
+
+      if (user.lockedUntil && user.lockedUntil > new Date()) {
+        return res.status(423).json({ error: "This account is temporarily locked after repeated failed sign-in attempts. Contact an administrator or try again later." });
+      }
+
+      if (!verifyAccessCode(req.body.accessCode, user.accessCodeHash)) {
+        user.failedLoginAttempts = (Number(user.failedLoginAttempts) || 0) + 1;
+        if (user.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+          user.lockedUntil = new Date(Date.now() + LOGIN_LOCKOUT_MS);
+        }
+        await user.save();
+
+        writeAuditLog({
+          action: "organization_user_login_failed",
+          actor: user.fullName,
+          role: user.role,
+          changedFields: user.lockedUntil ? ["failedLoginAttempts", "lockedUntil"] : ["failedLoginAttempts"],
+          metadata: {
+            userEmail: user.email,
+            failedLoginAttempts: user.failedLoginAttempts,
+            lockedUntil: user.lockedUntil,
+          },
+        });
+
         return res.status(401).json({ error: "Invalid email or access code." });
       }
 
@@ -451,6 +481,8 @@ app.post(
       };
       const sessionDurationMs = getSessionDurationMs(sessionUser.sessionDurationHours);
       user.lastLoginAt = new Date();
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = undefined;
       await user.save();
 
       writeAuditLog({
@@ -618,6 +650,7 @@ app.patch(
       .optional()
       .isFloat({ min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS })
       .withMessage(`Session duration must be between ${MIN_SESSION_DURATION_HOURS} and ${MAX_SESSION_DURATION_HOURS} hours`),
+    body("unlock").optional().isBoolean().withMessage("Unlock must be true or false"),
   ],
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
@@ -648,6 +681,8 @@ app.patch(
         changedFields.push("accessCode");
         user.accessCodeHash = hashAccessCode(req.body.accessCode);
         user.accessCodeUpdatedAt = new Date();
+        user.failedLoginAttempts = 0;
+        user.lockedUntil = undefined;
       }
       if (req.body.sessionDurationHours !== undefined) {
         const nextDuration = Number(req.body.sessionDurationHours);
@@ -655,6 +690,11 @@ app.patch(
           changedFields.push("sessionDurationHours");
           user.sessionDurationHours = nextDuration;
         }
+      }
+      if (req.body.unlock === true && (user.lockedUntil || user.failedLoginAttempts > 0)) {
+        changedFields.push("accountUnlock");
+        user.failedLoginAttempts = 0;
+        user.lockedUntil = undefined;
       }
       if (!user.accessCodeHash) {
         return res.status(400).json({ error: "Set an access code for this user before changing access status." });
@@ -672,6 +712,8 @@ app.patch(
             userRole: updatedUser.role,
             userStatus: updatedUser.status,
             sessionDurationHours: updatedUser.sessionDurationHours,
+            failedLoginAttempts: updatedUser.failedLoginAttempts,
+            lockedUntil: updatedUser.lockedUntil,
           },
         });
       }

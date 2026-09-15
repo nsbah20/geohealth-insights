@@ -20,6 +20,7 @@ import {
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ToggleOffIcon from "@mui/icons-material/ToggleOff";
 import ToggleOnIcon from "@mui/icons-material/ToggleOn";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
@@ -60,6 +61,10 @@ function formatDateTime(value) {
 function formatSessionWindow(hours) {
   const value = Number(hours) || 8;
   return `${value} ${value === 1 ? "hour" : "hours"}`;
+}
+
+function isUserLocked(user) {
+  return user.lockedUntil && new Date(user.lockedUntil) > new Date();
 }
 
 export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged }) {
@@ -211,6 +216,25 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     }
   };
 
+  const unlockUser = async (user) => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    try {
+      const res = await axios.patch(`${API_URL}/api/admin/users/${user._id}`, { unlock: true }, { headers: authHeaders(token) });
+      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
+      setMessage({ type: "success", text: `${user.fullName} is unlocked and failed attempts were cleared.` });
+      onChanged?.();
+    } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        onUnauthorized?.();
+      }
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to unlock this user.";
+      setMessage({ type: "error", text });
+    }
+  };
+
   if (!authUser) {
     return (
       <Alert severity="warning">
@@ -298,6 +322,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                 <TableCell>Session Window</TableCell>
                 <TableCell>Last Sign-In</TableCell>
                 <TableCell>Code Updated</TableCell>
+                <TableCell>Security</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Added</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -318,11 +343,35 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   <TableCell>{formatDateTime(user.lastLoginAt)}</TableCell>
                   <TableCell>{formatDateTime(user.accessCodeUpdatedAt)}</TableCell>
                   <TableCell>
+                    {isUserLocked(user) ? (
+                      <Box>
+                        <Chip label="Locked" size="small" color="warning" sx={{ fontWeight: 900, mb: 0.5 }} />
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Until {formatDateTime(user.lockedUntil)}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        {Number(user.failedLoginAttempts) > 0 ? `${user.failedLoginAttempts} failed attempt${user.failedLoginAttempts === 1 ? "" : "s"}` : "No failed attempts"}
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Chip label={user.status} size="small" color={user.status === "Active" ? "success" : "default"} sx={{ fontWeight: 900 }} />
                   </TableCell>
                   <TableCell>{formatDate(user.createdAt)}</TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<LockOpenIcon />}
+                        onClick={() => unlockUser(user)}
+                        disabled={!isUserLocked(user) && !Number(user.failedLoginAttempts)}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Unlock
+                      </Button>
                       <Button
                         size="small"
                         variant="outlined"
