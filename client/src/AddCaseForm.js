@@ -50,6 +50,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
     facility: "",
     suspectedExposure: "",
     reportSource: "Field report",
+    locationSource: "GPS captured",
     notes: "",
   });
   const [loading, setLoading] = useState(false);
@@ -151,12 +152,14 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
     try {
       let lat = parseFloat(form.latitude);
       let lng = parseFloat(form.longitude);
+      let locationSource = "Manually entered";
 
       if (navigator.geolocation) {
         try {
           const position = await getCurrentPosition();
           lat = position.coords.latitude;
           lng = position.coords.longitude;
+          locationSource = "GPS captured";
         } catch {
           // fall back to manually entered values
         }
@@ -168,6 +171,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
           ...form,
           latitude: lat,
           longitude: lng,
+          locationSource,
           cases: Number(form.cases),
         },
         { headers: authHeaders(token) }
@@ -188,6 +192,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
         facility: "",
         suspectedExposure: "",
         reportSource: "Field report",
+        locationSource: "GPS captured",
         notes: "",
       }));
       if (onCaseAdded) onCaseAdded();
@@ -268,6 +273,9 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
         placeholder="City, state or facility name"
         helperText="Use a clear place name, for example Madison, WI or Banjul, The Gambia"
       />
+      <Alert severity="info" sx={{ fontSize: "0.8rem", borderRadius: 2 }}>
+        When browser location is available, the map uses captured GPS coordinates and keeps the typed place as the reported location for review.
+      </Alert>
       <TextField
         label="Case Count"
         name="cases"
@@ -407,6 +415,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
           size="small"
           required
           fullWidth
+          helperText="Auto-filled from GPS when available"
         />
         <TextField
           label="Longitude"
@@ -416,6 +425,7 @@ export default function AddCaseForm({ onCaseAdded, settings }) {
           size="small"
           required
           fullWidth
+          helperText="Auto-filled from GPS when available"
         />
       </Stack>
       <TextField

@@ -53,6 +53,15 @@ const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 const REPORT_SOURCE_OPTIONS = ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"];
 const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
+const LOCATION_SOURCE_OPTIONS = ["GPS captured", "Manually entered", "Admin corrected", "Imported report"];
+const LOCATION_VERIFICATION_OPTIONS = ["GPS verified", "Needs location review", "Admin corrected", "Reported remotely"];
+
+const LOCATION_VERIFICATION_COLORS = {
+  "GPS verified": "success",
+  "Needs location review": "warning",
+  "Admin corrected": "info",
+  "Reported remotely": "default",
+};
 
 function getPriority(item, settings) {
   if (item.priority) return item.priority;
@@ -105,6 +114,12 @@ export default function CasesTable() {
   const [editForm, setEditForm] = useState({
     status: "New",
     priority: "Medium",
+    location: "",
+    latitude: "",
+    longitude: "",
+    locationSource: "GPS captured",
+    locationVerification: "GPS verified",
+    locationReviewReason: "",
     ageGroup: "Unknown",
     sex: "Unknown",
     symptomOnsetDate: "",
@@ -193,6 +208,9 @@ export default function CasesTable() {
     (c) =>
       c.disease?.toLowerCase().includes(search.toLowerCase()) ||
       c.location?.toLowerCase().includes(search.toLowerCase()) ||
+      c.locationSource?.toLowerCase().includes(search.toLowerCase()) ||
+      c.locationVerification?.toLowerCase().includes(search.toLowerCase()) ||
+      c.locationReviewReason?.toLowerCase().includes(search.toLowerCase()) ||
       c.status?.toLowerCase().includes(search.toLowerCase()) ||
       c.priority?.toLowerCase().includes(search.toLowerCase()) ||
       c.ageGroup?.toLowerCase().includes(search.toLowerCase()) ||
@@ -208,6 +226,12 @@ export default function CasesTable() {
     setEditForm({
       status: caseRecord.status || "New",
       priority: getPriority(caseRecord, organizationSettings),
+      location: caseRecord.location || "",
+      latitude: Number.isFinite(Number(caseRecord.lat)) ? String(caseRecord.lat) : "",
+      longitude: Number.isFinite(Number(caseRecord.lng)) ? String(caseRecord.lng) : "",
+      locationSource: caseRecord.locationSource || "GPS captured",
+      locationVerification: caseRecord.locationVerification || "GPS verified",
+      locationReviewReason: caseRecord.locationReviewReason || "",
       ageGroup: caseRecord.ageGroup || "Unknown",
       sex: caseRecord.sex || "Unknown",
       symptomOnsetDate: caseRecord.symptomOnsetDate || "",
@@ -421,12 +445,13 @@ export default function CasesTable() {
           overflowX: "auto",
         }}
       >
-        <Table size="small" sx={{ minWidth: 1880 }}>
+        <Table size="small" sx={{ minWidth: 2100 }}>
           <TableHead>
             <TableRow sx={{ "& th": { fontWeight: 900, bgcolor: "#082f2f", color: "white", py: 1.5 } }}>
               <TableCell>#</TableCell>
               <TableCell>Disease</TableCell>
               <TableCell>Location</TableCell>
+              <TableCell>Location Trust</TableCell>
               <TableCell align="right">Cases</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Priority</TableCell>
@@ -446,7 +471,7 @@ export default function CasesTable() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={17} align="center">
+                <TableCell colSpan={18} align="center">
                   No cases found.
                 </TableCell>
               </TableRow>
@@ -470,7 +495,27 @@ export default function CasesTable() {
                         {c.disease}
                       </Typography>
                     </TableCell>
-                    <TableCell>{c.location}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={700}>
+                        {c.location}
+                      </Typography>
+                      {c.enteredLocation && c.enteredLocation !== c.location && (
+                        <Typography variant="caption" color="text.secondary">
+                          Reported: {c.enteredLocation}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={c.locationVerification || "GPS verified"}
+                        color={LOCATION_VERIFICATION_COLORS[c.locationVerification || "GPS verified"] || "default"}
+                        size="small"
+                        sx={{ fontWeight: 800, mb: 0.4 }}
+                      />
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {c.locationSource || "GPS captured"}
+                      </Typography>
+                    </TableCell>
                     <TableCell align="right">{c.cases}</TableCell>
                     <TableCell>
                       <Chip
@@ -607,6 +652,11 @@ export default function CasesTable() {
                   {saveMessage.text}
                 </Alert>
               )}
+              {(selectedCase.locationVerification === "Needs location review" || selectedCase.locationReviewReason) && (
+                <Alert severity="warning" sx={{ fontSize: "0.85rem" }}>
+                  {selectedCase.locationReviewReason || "This case needs location review before the plotted map location is trusted."}
+                </Alert>
+              )}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
                 <TextField
                   select
@@ -635,6 +685,79 @@ export default function CasesTable() {
                   ))}
                 </TextField>
               </Stack>
+              <Divider />
+              <Typography variant="subtitle2" fontWeight={900} color="#102a2c">
+                Location Verification
+              </Typography>
+              <TextField
+                label="Reported Location"
+                name="location"
+                value={editForm.location}
+                onChange={handleEditChange}
+                size="small"
+                fullWidth
+                helperText="This is the place name staff see in the registry and dashboard."
+              />
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <TextField
+                  label="Map Latitude"
+                  name="latitude"
+                  value={editForm.latitude}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                  helperText="Update only after verified correction."
+                />
+                <TextField
+                  label="Map Longitude"
+                  name="longitude"
+                  value={editForm.longitude}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                  helperText="Update only after verified correction."
+                />
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <TextField
+                  select
+                  label="Location Source"
+                  name="locationSource"
+                  value={editForm.locationSource}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                >
+                  {LOCATION_SOURCE_OPTIONS.map((source) => (
+                    <MenuItem key={source} value={source}>{source}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Verification"
+                  name="locationVerification"
+                  value={editForm.locationVerification}
+                  onChange={handleEditChange}
+                  size="small"
+                  fullWidth
+                >
+                  {LOCATION_VERIFICATION_OPTIONS.map((verification) => (
+                    <MenuItem key={verification} value={verification}>{verification}</MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+              <TextField
+                label="Location Review Note"
+                name="locationReviewReason"
+                value={editForm.locationReviewReason}
+                onChange={handleEditChange}
+                size="small"
+                fullWidth
+                multiline
+                minRows={2}
+                inputProps={{ maxLength: 500 }}
+                placeholder="Explain why the location was verified, corrected, or reported remotely"
+              />
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
                 <TextField
                   select
@@ -757,6 +880,11 @@ export default function CasesTable() {
                         <Typography variant="caption" color="text.secondary" display="block">
                           Age: {entry.ageGroup || "Unknown"} · Sex: {entry.sex || "Unknown"} · Facility: {entry.facility || "Not specified"}
                         </Typography>
+                        {(entry.location || entry.locationSource || entry.locationVerification) && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Location: {entry.location || "Unknown"} · {entry.locationSource || "Source unknown"} · {entry.locationVerification || "Verification unknown"}
+                          </Typography>
+                        )}
                         {entry.changedFields?.length > 0 && (
                           <Typography variant="caption" color="text.secondary" display="block">
                             Changed: {entry.changedFields.join(", ")}

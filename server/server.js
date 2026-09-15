@@ -15,6 +15,8 @@ const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"]
 const CASE_PRIORITIES = ["Low", "Medium", "High"];
 const AGE_GROUPS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
+const LOCATION_SOURCES = ["GPS captured", "Manually entered", "Admin corrected", "Imported report"];
+const LOCATION_VERIFICATIONS = ["GPS verified", "Needs location review", "Admin corrected", "Reported remotely"];
 const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Reporter", "Institution Viewer", "Data Manager"];
 const ADMIN_ROLES = ["Admin", "System Administrator"];
 const REVIEWER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Data Manager"];
@@ -213,6 +215,17 @@ function verifyAccessCode(accessCode, storedHash) {
   return expectedBuffer.length === submittedBuffer.length && crypto.timingSafeEqual(expectedBuffer, submittedBuffer);
 }
 
+function locationMatchesJurisdiction(location = "", jurisdiction = "") {
+  if (!jurisdiction) return true;
+  const normalizedLocation = String(location).toLowerCase();
+  return String(jurisdiction)
+    .toLowerCase()
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 2)
+    .some((part) => normalizedLocation.includes(part));
+}
+
 // ── MongoDB connection ───────────────────────────────────────────────────────
 mongoose
   .connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 20000 })
@@ -228,6 +241,12 @@ const caseSchema = new mongoose.Schema(
     location: { type: String, required: true, trim: true },
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
+    enteredLocation: { type: String, default: "", trim: true },
+    capturedLat: { type: Number },
+    capturedLng: { type: Number },
+    locationSource: { type: String, enum: LOCATION_SOURCES, default: "GPS captured" },
+    locationVerification: { type: String, enum: LOCATION_VERIFICATIONS, default: "GPS verified" },
+    locationReviewReason: { type: String, default: "", trim: true },
     cases: { type: Number, default: 1, min: 1 },
     date: { type: String, required: true },
     status: {
@@ -262,6 +281,12 @@ const caseSchema = new mongoose.Schema(
         sex: { type: String, enum: SEX_OPTIONS },
         symptomOnsetDate: { type: String, default: "" },
         facility: { type: String, default: "", trim: true },
+        location: { type: String, default: "", trim: true },
+        lat: { type: Number },
+        lng: { type: Number },
+        locationSource: { type: String, enum: LOCATION_SOURCES },
+        locationVerification: { type: String, enum: LOCATION_VERIFICATIONS },
+        locationReviewReason: { type: String, default: "", trim: true },
         suspectedExposure: { type: String, default: "", trim: true, maxlength: 1000 },
         reportSource: { type: String, trim: true },
         notes: { type: String, default: "", trim: true, maxlength: 1000 },
@@ -344,11 +369,12 @@ async function getOrganizationSettings() {
 
 function serializePublicCase(caseRecord) {
   const roundPublicCoordinate = (value) => Number(Number(value).toFixed(2));
+  const needsLocationReview = caseRecord.locationVerification === "Needs location review";
 
   return {
     _id: caseRecord._id,
     disease: caseRecord.disease,
-    location: caseRecord.location,
+    location: needsLocationReview ? "Location pending verification" : caseRecord.location,
     lat: roundPublicCoordinate(caseRecord.lat),
     lng: roundPublicCoordinate(caseRecord.lng),
     cases: caseRecord.cases,
@@ -356,6 +382,8 @@ function serializePublicCase(caseRecord) {
     status: caseRecord.status,
     priority: caseRecord.priority,
     locationPrecision: "approximate",
+    locationSource: caseRecord.locationSource || "GPS captured",
+    locationVerification: caseRecord.locationVerification || "GPS verified",
     source: "live",
   };
 }
@@ -880,6 +908,7 @@ app.post(
     body("location").notEmpty().withMessage("Location is required").trim().escape(),
     body("latitude").isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude"),
     body("longitude").isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
+    body("locationSource").optional().isIn(LOCATION_SOURCES).withMessage("Invalid location source"),
     body("cases").optional().isInt({ min: 1, max: 100000 }).withMessage("Cases must be a positive number"),
     body("date").notEmpty().withMessage("Date is required"),
     body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
@@ -921,11 +950,26 @@ app.post(
     } = req.body;
 
     try {
+      const locationSource = LOCATION_SOURCES.includes(req.body.locationSource) ? req.body.locationSource : "GPS captured";
+      const needsLocationReview =
+        locationSource === "GPS captured" &&
+        req.user.role === "Field Reporter" &&
+        !locationMatchesJurisdiction(location, req.user.jurisdiction);
+      const locationVerification = needsLocationReview ? "Needs location review" : "GPS verified";
+      const locationReviewReason = needsLocationReview
+        ? "Reported place does not match the reporter's assigned jurisdiction. Reviewer should verify the plotted location."
+        : "";
       const newCase = await Case.create({
         disease,
         lat: Number(latitude),
         lng: Number(longitude),
         location,
+        enteredLocation: location,
+        capturedLat: Number(latitude),
+        capturedLng: Number(longitude),
+        locationSource,
+        locationVerification,
+        locationReviewReason,
         cases: Number(cases) || 1,
         date,
         status: status || "New",
@@ -957,6 +1001,8 @@ app.post(
           reporterEmail: req.user.email || "",
           reporterFacility: req.user.facility || "",
           reporterJurisdiction: req.user.jurisdiction || "",
+          locationSource: newCase.locationSource,
+          locationVerification: newCase.locationVerification,
         },
       });
       res.status(201).json(newCase);
@@ -973,6 +1019,12 @@ app.patch(
   [
     body("status").optional().isIn(CASE_STATUSES).withMessage("Invalid status"),
     body("priority").optional().isIn(CASE_PRIORITIES).withMessage("Invalid priority"),
+    body("location").optional().notEmpty().withMessage("Location cannot be empty").trim().escape(),
+    body("latitude").optional({ checkFalsy: true }).isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude"),
+    body("longitude").optional({ checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
+    body("locationSource").optional().isIn(LOCATION_SOURCES).withMessage("Invalid location source"),
+    body("locationVerification").optional().isIn(LOCATION_VERIFICATIONS).withMessage("Invalid location verification"),
+    body("locationReviewReason").optional().trim().isLength({ max: 500 }).withMessage("Location review note must be 500 characters or fewer").escape(),
     body("ageGroup").optional().isIn(AGE_GROUPS).withMessage("Invalid age group"),
     body("sex").optional().isIn(SEX_OPTIONS).withMessage("Invalid sex"),
     body("symptomOnsetDate").optional().trim().escape(),
@@ -998,6 +1050,12 @@ app.patch(
     const reviewFields = [
       "status",
       "priority",
+      "location",
+      "lat",
+      "lng",
+      "locationSource",
+      "locationVerification",
+      "locationReviewReason",
       "ageGroup",
       "sex",
       "symptomOnsetDate",
@@ -1012,6 +1070,16 @@ app.patch(
 
       if (!caseRecord) {
         return res.status(404).json({ error: "Case not found" });
+      }
+
+      if (Object.prototype.hasOwnProperty.call(req.body, "latitude") && req.body.latitude !== "") {
+        req.body.lat = Number(req.body.latitude);
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body, "longitude") && req.body.longitude !== "") {
+        req.body.lng = Number(req.body.longitude);
+      }
+      if (req.body.locationSource === "Admin corrected" && !req.body.locationVerification) {
+        req.body.locationVerification = "Admin corrected";
       }
 
       const changedFields = reviewFields.filter((field) => {
@@ -1034,6 +1102,12 @@ app.patch(
           sex: caseRecord.sex,
           symptomOnsetDate: caseRecord.symptomOnsetDate,
           facility: caseRecord.facility,
+          location: caseRecord.location,
+          lat: caseRecord.lat,
+          lng: caseRecord.lng,
+          locationSource: caseRecord.locationSource,
+          locationVerification: caseRecord.locationVerification,
+          locationReviewReason: caseRecord.locationReviewReason,
           suspectedExposure: caseRecord.suspectedExposure,
           reportSource: caseRecord.reportSource,
           notes: caseRecord.notes,
@@ -1054,6 +1128,8 @@ app.patch(
           metadata: {
             status: caseRecord.status,
             priority: caseRecord.priority,
+            locationSource: caseRecord.locationSource,
+            locationVerification: caseRecord.locationVerification,
           },
         });
       }

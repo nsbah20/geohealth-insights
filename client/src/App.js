@@ -104,6 +104,8 @@ function buildCsv(rows, settings) {
     "Notes",
     "Latitude",
     "Longitude",
+    "Location Source",
+    "Location Verification",
     "Data Origin",
   ];
   const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -125,6 +127,8 @@ function buildCsv(rows, settings) {
     row.notes || "",
     row.lat,
     row.lng,
+    row.locationSource || "",
+    row.locationVerification || "",
     row.source || "live",
   ].map(escape).join(","));
   return [headers.join(","), ...body].join("\n");
@@ -584,6 +588,8 @@ function MapView() {
             location: d.location || "Unknown",
             priority: getPriority(d, organizationSettings),
             status: d.status || "New",
+            locationSource: d.locationSource || "GPS captured",
+            locationVerification: d.locationVerification || "GPS verified",
           },
           geometry: {
             type: "Point",
@@ -868,6 +874,7 @@ function MapView() {
               <strong>${escapeHtml(point.disease)}</strong>
               <span>${escapeHtml(point.location)}</span>
               ${point.locationPrecision === "approximate" ? "<div>Approximate public map location</div>" : ""}
+              ${point.locationVerification ? `<div>Location: ${escapeHtml(point.locationVerification)}</div>` : ""}
               <div><b>${escapeHtml(point.cases)}</b> reported cases</div>
               <div>${escapeHtml(formatDate(point.date))} · ${escapeHtml(priority)} priority</div>
               ${(point.symptomOnsetDate || point.ageGroup || point.sex) ? `<div>Onset: ${escapeHtml(point.symptomOnsetDate ? formatDate(point.symptomOnsetDate) : "Unknown")} · Age: ${escapeHtml(point.ageGroup || "Unknown")} · Sex: ${escapeHtml(point.sex || "Unknown")}</div>` : ""}
