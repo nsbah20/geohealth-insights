@@ -24,6 +24,7 @@ import {
   InputAdornment,
   MenuItem,
   Stack,
+  Autocomplete,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
@@ -135,6 +136,40 @@ async function geocodeLocation(location) {
   };
 }
 
+async function searchLocations(location) {
+  if (!MAPBOX_TOKEN) return [];
+
+  const query = String(location || "").trim();
+  if (query.length < 3) return [];
+
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi&access_token=${MAPBOX_TOKEN}`;
+  const response = await fetch(url);
+  if (!response.ok) return [];
+
+  const data = await response.json();
+  return (data.features || [])
+    .map((feature) => {
+      const [lng, lat] = feature.center || [];
+      if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+      return {
+        id: feature.id,
+        label: feature.place_name,
+        latitude: Number(lat).toFixed(6),
+        longitude: Number(lng).toFixed(6),
+      };
+    })
+    .filter(Boolean);
+}
+
+function coordinatesMatch(aLat, aLng, bLat, bLng) {
+  const firstLat = Number(aLat);
+  const firstLng = Number(aLng);
+  const secondLat = Number(bLat);
+  const secondLng = Number(bLng);
+  if (![firstLat, firstLng, secondLat, secondLng].every(Number.isFinite)) return false;
+  return Math.abs(firstLat - secondLat) < 0.0001 && Math.abs(firstLng - secondLng) < 0.0001;
+}
+
 export default function CasesTable() {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -161,6 +196,8 @@ export default function CasesTable() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [findingLocation, setFindingLocation] = useState(false);
+  const [locationSuggestions, setLocationSuggestions] = useState([]);
+  const [loadingLocationSuggestions, setLoadingLocationSuggestions] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
   const [adminSession, setAdminSession] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -235,6 +272,36 @@ export default function CasesTable() {
     return () => window.clearInterval(interval);
   }, [adminSession]);
 
+  useEffect(() => {
+    if (!selectedCase || !canReview) {
+      setLocationSuggestions([]);
+      return undefined;
+    }
+
+    const query = editForm.location.trim();
+    if (query.length < 3) {
+      setLocationSuggestions([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingLocationSuggestions(true);
+    const timeout = window.setTimeout(() => {
+      searchLocations(query)
+        .then((suggestions) => {
+          if (!cancelled) setLocationSuggestions(suggestions);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingLocationSuggestions(false);
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [canReview, editForm.location, selectedCase]);
+
   const filtered = cases.filter(
     (c) =>
       c.disease?.toLowerCase().includes(search.toLowerCase()) ||
@@ -284,6 +351,20 @@ export default function CasesTable() {
     setEditForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
+  const applyLocationSuggestion = (suggestion) => {
+    if (!suggestion) return;
+    setEditForm((current) => ({
+      ...current,
+      location: suggestion.label,
+      latitude: suggestion.latitude,
+      longitude: suggestion.longitude,
+      locationSource: "Admin corrected",
+      locationVerification: "Admin corrected",
+      locationReviewReason: `Map coordinates selected from ${suggestion.label}.`,
+    }));
+    setSaveMessage({ type: "success", text: "Map coordinates selected. Save the review to move the marker and heatmap." });
+  };
+
   const applyGeocodedLocation = async () => {
     setFindingLocation(true);
     setSaveMessage(null);
@@ -321,9 +402,7 @@ export default function CasesTable() {
 
     try {
       const locationChanged = String(editForm.location || "").trim() !== String(selectedCase.location || "").trim();
-      const coordinatesUnchanged =
-        String(editForm.latitude || "") === String(selectedCase.lat ?? "") &&
-        String(editForm.longitude || "") === String(selectedCase.lng ?? "");
+      const coordinatesUnchanged = coordinatesMatch(editForm.latitude, editForm.longitude, selectedCase.lat, selectedCase.lng);
       const shouldGeocodeAdminCorrection =
         editForm.locationSource === "Admin corrected" &&
         editForm.locationVerification === "Admin corrected" &&
@@ -768,14 +847,34 @@ export default function CasesTable() {
                 Location Verification
               </Typography>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ xs: "stretch", sm: "flex-start" }}>
-                <TextField
-                  label="Reported Location"
-                  name="location"
+                <Autocomplete
+                  freeSolo
+                  options={locationSuggestions}
+                  loading={loadingLocationSuggestions}
+                  filterOptions={(options) => options}
+                  getOptionLabel={(option) => (typeof option === "string" ? option : option.label)}
                   value={editForm.location}
-                  onChange={handleEditChange}
-                  size="small"
+                  inputValue={editForm.location}
+                  onInputChange={(event, nextValue) => {
+                    setEditForm((current) => ({ ...current, location: nextValue || "" }));
+                  }}
+                  onChange={(event, suggestion) => {
+                    if (typeof suggestion === "string") {
+                      setEditForm((current) => ({ ...current, location: suggestion }));
+                    } else {
+                      applyLocationSuggestion(suggestion);
+                    }
+                  }}
                   fullWidth
-                  helperText="This is the place name staff see in the registry and dashboard."
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Reported Location"
+                      name="location"
+                      size="small"
+                      helperText="Start typing a city or place, then choose a match to update the map coordinates."
+                    />
+                  )}
                 />
                 <Button
                   variant="outlined"
