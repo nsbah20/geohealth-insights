@@ -77,6 +77,7 @@ const baseReadinessItems = [
   { label: "Admin access gate", state: "Active", tone: "success" },
   { label: "Organization settings", state: "Active", tone: "success" },
   { label: "User and role directory", state: "Active", tone: "success" },
+  { label: "Invite handoff tracking", state: "Active", tone: "success" },
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
 ];
 
@@ -131,6 +132,7 @@ function formatAction(action) {
   if (action === "organization_settings_updated") return "Organization settings updated";
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";
+  if (action === "organization_user_invite_prepared") return "User invite prepared";
   return String(action || "Activity").replace(/_/g, " ");
 }
 
@@ -524,7 +526,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.organizationName} now supports role-based access, per-user session windows, and admin-reviewed user activity. Next we can add password reset, invite emails, and single sign-on for production institutions.
+            {organizationSettings.organizationName} now supports role-based access, per-user session windows, admin-reviewed user activity, and invite handoff tracking. Next we can add password reset emails and single sign-on for production institutions.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -539,7 +541,7 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            Current sign-in uses email and assigned access codes. Password and SSO workflows can replace those codes later.
+            Current sign-in uses email and assigned access codes. Invite messages can be copied now; provider-sent email, passwords, and SSO can replace those codes later.
           </Typography>
         </AdminPanel>
       </Box>

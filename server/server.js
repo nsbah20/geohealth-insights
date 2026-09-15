@@ -341,6 +341,7 @@ const organizationUserSchema = new mongoose.Schema(
     sessionDurationHours: { type: Number, default: DEFAULT_SESSION_DURATION_HOURS, min: MIN_SESSION_DURATION_HOURS, max: MAX_SESSION_DURATION_HOURS },
     accessCodeHash: { type: String, required: true, select: false },
     accessCodeUpdatedAt: { type: Date },
+    invitedAt: { type: Date },
     lastLoginAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0, min: 0 },
     lockedUntil: { type: Date },
@@ -753,6 +754,43 @@ app.patch(
     }
   }
 );
+
+app.post("/api/admin/users/:id/invite", requireAdminSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid user id" });
+  }
+
+  try {
+    const user = await OrganizationUser.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: "Organization user not found" });
+    }
+
+    user.invitedAt = new Date();
+    const updatedUser = await user.save();
+
+    writeAuditLog({
+      action: "organization_user_invite_prepared",
+      actor: req.user.name || "Admin",
+      role: req.user.role || "Admin",
+      changedFields: ["invitedAt"],
+      metadata: {
+        userEmail: updatedUser.email,
+        userRole: updatedUser.role,
+        userStatus: updatedUser.status,
+      },
+    });
+
+    res.json(updatedUser);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to prepare user invite" });
+  }
+});
 
 app.get("/api/settings", async (req, res) => {
   if (mongoose.connection.readyState !== 1) {

@@ -23,6 +23,7 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ToggleOffIcon from "@mui/icons-material/ToggleOff";
 import ToggleOnIcon from "@mui/icons-material/ToggleOn";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
@@ -65,6 +66,25 @@ function formatSessionWindow(hours) {
 
 function isUserLocked(user) {
   return user.lockedUntil && new Date(user.lockedUntil) > new Date();
+}
+
+function buildInviteMessage(user, settings) {
+  const signInUrl = `${window.location.origin}/admin`;
+  return [
+    `Hello ${user.fullName},`,
+    "",
+    `You have been added to ${settings.organizationName} as ${user.role}.`,
+    `Sign in here: ${signInUrl}`,
+    "",
+    "Sign-in type: Organization user",
+    `Email: ${user.email}`,
+    "Access code: provided separately by your administrator",
+    `Approved session window: ${formatSessionWindow(user.sessionDurationHours)}`,
+    `Jurisdiction: ${user.jurisdiction || settings.defaultRegion}`,
+    user.facility ? `Facility: ${user.facility}` : "",
+    "",
+    "For security, do not share your access code.",
+  ].filter(Boolean).join("\n");
 }
 
 export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged }) {
@@ -235,6 +255,33 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     }
   };
 
+  const prepareInvite = async (user) => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    const inviteMessage = buildInviteMessage(user, settings);
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(inviteMessage);
+      } else {
+        window.prompt("Copy this invite message", inviteMessage);
+      }
+
+      const res = await axios.post(`${API_URL}/api/admin/users/${user._id}/invite`, {}, { headers: authHeaders(token) });
+      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
+      setMessage({ type: "success", text: `Invite message copied for ${user.fullName}. Share the access code separately.` });
+      onChanged?.();
+    } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        onUnauthorized?.();
+      }
+      const text = err.response?.data?.error || "Unable to prepare this invite. Browser clipboard permission may be required.";
+      setMessage({ type: "error", text });
+    }
+  };
+
   if (!authUser) {
     return (
       <Alert severity="warning">
@@ -322,6 +369,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                 <TableCell>Session Window</TableCell>
                 <TableCell>Last Sign-In</TableCell>
                 <TableCell>Code Updated</TableCell>
+                <TableCell>Invite</TableCell>
                 <TableCell>Security</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Added</TableCell>
@@ -342,6 +390,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   <TableCell>{formatSessionWindow(user.sessionDurationHours)}</TableCell>
                   <TableCell>{formatDateTime(user.lastLoginAt)}</TableCell>
                   <TableCell>{formatDateTime(user.accessCodeUpdatedAt)}</TableCell>
+                  <TableCell>{formatDateTime(user.invitedAt)}</TableCell>
                   <TableCell>
                     {isUserLocked(user) ? (
                       <Box>
@@ -371,6 +420,15 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                         sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
                       >
                         Unlock
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ContentCopyIcon />}
+                        onClick={() => prepareInvite(user)}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Invite
                       </Button>
                       <Button
                         size="small"
