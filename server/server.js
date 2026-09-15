@@ -738,6 +738,7 @@ app.get("/api/settings", async (req, res) => {
       defaultRegion: settings.defaultRegion,
       surveillanceScope: settings.surveillanceScope,
       contactEmail: settings.contactEmail,
+      retentionDays: settings.retentionDays,
       lowPriorityMaxCases: settings.lowPriorityMaxCases,
       mediumPriorityMaxCases: settings.mediumPriorityMaxCases,
       diseaseList: settings.diseaseList,

@@ -77,13 +77,30 @@ const baseReadinessItems = [
   { label: "Admin access gate", state: "Active", tone: "success" },
   { label: "Organization settings", state: "Active", tone: "success" },
   { label: "User and role directory", state: "Active", tone: "success" },
+  { label: "Privacy and retention summary", state: "Active", tone: "success" },
 ];
 
 const governanceItems = [
   "Define who can submit, review, approve, export, and administer records.",
   "Require authenticated users before real institutional health data is entered.",
   "Expand audit logs to include exports and administrative setting changes.",
-  "Prepare privacy notices and data retention rules before any production rollout.",
+  "Keep privacy notices and retention rules visible before any production rollout.",
+];
+
+const publicDataBoundaries = [
+  "Disease name",
+  "Approximate location",
+  "Reported case count",
+  "Report date",
+  "Status and priority summary",
+];
+
+const protectedDataBoundaries = [
+  "Exact coordinates",
+  "Facility and reporter identity",
+  "Age, sex, onset, and exposure details",
+  "Clinical notes and review history",
+  "CSV and PDF exports",
 ];
 
 function formatDateTime(value) {
@@ -95,6 +112,11 @@ function formatDateTime(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatRetentionDays(days) {
+  const value = Number(days) || 365;
+  return `${value.toLocaleString()} days`;
 }
 
 function formatAction(action) {
@@ -529,6 +551,86 @@ export default function AdminConsole() {
             onUnauthorized={handleUnauthorized}
             onChanged={handleAdminDataChanged}
           />
+        </AdminPanel>
+      </Box>
+
+      <Box sx={{ mt: 2 }}>
+        <AdminPanel title="Privacy & Retention" icon={<SecurityIcon />}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
+              gap: 1.5,
+              mb: 2,
+            }}
+          >
+            <Box sx={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: 2, p: 1.5, bgcolor: "#f8fbfa" }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={900} textTransform="uppercase">
+                Record Retention
+              </Typography>
+              <Typography variant="h5" color="#102a2c" fontWeight={900}>
+                {formatRetentionDays(organizationSettings.retentionDays)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Current organization policy window
+              </Typography>
+            </Box>
+            <Box sx={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: 2, p: 1.5, bgcolor: "#f8fbfa" }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={900} textTransform="uppercase">
+                Privacy Contact
+              </Typography>
+              <Typography variant="h6" color="#102a2c" fontWeight={900} sx={{ wordBreak: "break-word" }}>
+                {organizationSettings.contactEmail || "Not configured"}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Shown here for institutional governance
+              </Typography>
+            </Box>
+            <Box sx={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: 2, p: 1.5, bgcolor: "#f8fbfa" }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={900} textTransform="uppercase">
+                Map Privacy
+              </Typography>
+              <Typography variant="h6" color="#102a2c" fontWeight={900}>
+                Approximate public view
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Exact records stay behind staff access
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+              gap: 2,
+            }}
+          >
+            <Box>
+              <Typography variant="subtitle2" color="#102a2c" fontWeight={900} sx={{ mb: 1 }}>
+                Public surveillance summary
+              </Typography>
+              <Stack spacing={0.8}>
+                {publicDataBoundaries.map((item) => (
+                  <Typography key={item} variant="body2" color="text.secondary">
+                    {item}
+                  </Typography>
+                ))}
+              </Stack>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" color="#102a2c" fontWeight={900} sx={{ mb: 1 }}>
+                Protected staff record
+              </Typography>
+              <Stack spacing={0.8}>
+                {protectedDataBoundaries.map((item) => (
+                  <Typography key={item} variant="body2" color="text.secondary">
+                    {item}
+                  </Typography>
+                ))}
+              </Stack>
+            </Box>
+          </Box>
         </AdminPanel>
       </Box>
 

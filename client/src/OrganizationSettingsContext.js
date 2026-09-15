@@ -8,6 +8,7 @@ export const DEFAULT_ORGANIZATION_SETTINGS = {
   defaultRegion: "Madison, WI",
   surveillanceScope: "Disease surveillance and geospatial reporting",
   contactEmail: "",
+  retentionDays: 365,
   lowPriorityMaxCases: 19,
   mediumPriorityMaxCases: 49,
   diseaseList: ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"],
