@@ -78,6 +78,7 @@ const baseReadinessItems = [
   { label: "Organization settings", state: "Active", tone: "success" },
   { label: "User and role directory", state: "Active", tone: "success" },
   { label: "Invite handoff tracking", state: "Active", tone: "success" },
+  { label: "Access reset requests", state: "Active", tone: "success" },
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
 ];
 
@@ -133,6 +134,7 @@ function formatAction(action) {
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";
   if (action === "organization_user_invite_prepared") return "User invite prepared";
+  if (action === "organization_user_reset_requested") return "Access reset requested";
   return String(action || "Activity").replace(/_/g, " ");
 }
 
@@ -228,6 +230,7 @@ export default function AdminConsole() {
   const [authUser, setAuthUser] = useState(null);
   const [authMessage, setAuthMessage] = useState(null);
   const [signingIn, setSigningIn] = useState(false);
+  const [requestingReset, setRequestingReset] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditError, setAuditError] = useState(null);
   const [sessionTick, setSessionTick] = useState(0);
@@ -313,6 +316,26 @@ export default function AdminConsole() {
       setAuthMessage({ type: "error", text });
     } finally {
       setSigningIn(false);
+    }
+  };
+
+  const handleResetRequest = async () => {
+    if (!userEmail.trim()) {
+      setAuthMessage({ type: "warning", text: "Enter your organization email before requesting an access reset." });
+      return;
+    }
+
+    setRequestingReset(true);
+    setAuthMessage(null);
+
+    try {
+      const res = await axios.post(`${API_URL}/api/auth/reset-request`, { email: userEmail });
+      setAuthMessage({ type: "info", text: res.data.message || "Your reset request was sent to an administrator." });
+    } catch (err) {
+      const text = err.response?.data?.errors?.[0]?.msg || err.response?.data?.error || "Unable to request an access reset.";
+      setAuthMessage({ type: "error", text });
+    } finally {
+      setRequestingReset(false);
     }
   };
 
@@ -526,7 +549,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.organizationName} now supports role-based access, per-user session windows, admin-reviewed user activity, and invite handoff tracking. Next we can add password reset emails and single sign-on for production institutions.
+            {organizationSettings.organizationName} now supports role-based access, per-user session windows, admin-reviewed user activity, invite handoff tracking, and access reset requests. Next we can add provider-sent reset emails and single sign-on for production institutions.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -541,7 +564,7 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            Current sign-in uses email and assigned access codes. Invite messages can be copied now; provider-sent email, passwords, and SSO can replace those codes later.
+            Current sign-in uses email and assigned access codes. Users can request an access reset now; provider-sent emails, passwords, and SSO can replace those codes later.
           </Typography>
         </AdminPanel>
       </Box>
@@ -725,6 +748,17 @@ export default function AdminConsole() {
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
                 Admin setup code manages the organization. Listed users can sign in with their email and assigned access code.
               </Typography>
+              {loginMode === "user" && (
+                <Button
+                  type="button"
+                  variant="text"
+                  onClick={handleResetRequest}
+                  disabled={requestingReset || !userEmail.trim()}
+                  sx={{ mt: 0.75, px: 0, fontWeight: 800 }}
+                >
+                  {requestingReset ? "Requesting reset..." : "Request access reset"}
+                </Button>
+              )}
             </Box>
           )}
         </AdminPanel>

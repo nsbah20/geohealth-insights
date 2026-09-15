@@ -370,6 +370,7 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                 <TableCell>Last Sign-In</TableCell>
                 <TableCell>Code Updated</TableCell>
                 <TableCell>Invite</TableCell>
+                <TableCell>Reset Request</TableCell>
                 <TableCell>Security</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Added</TableCell>
@@ -391,6 +392,18 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   <TableCell>{formatDateTime(user.lastLoginAt)}</TableCell>
                   <TableCell>{formatDateTime(user.accessCodeUpdatedAt)}</TableCell>
                   <TableCell>{formatDateTime(user.invitedAt)}</TableCell>
+                  <TableCell>
+                    {user.resetRequestedAt ? (
+                      <Box>
+                        <Chip label="Requested" size="small" color="warning" sx={{ fontWeight: 900, mb: 0.5 }} />
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {formatDateTime(user.resetRequestedAt)}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">None</Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {isUserLocked(user) ? (
                       <Box>

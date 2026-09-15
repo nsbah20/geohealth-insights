@@ -342,6 +342,7 @@ const organizationUserSchema = new mongoose.Schema(
     accessCodeHash: { type: String, required: true, select: false },
     accessCodeUpdatedAt: { type: Date },
     invitedAt: { type: Date },
+    resetRequestedAt: { type: Date },
     lastLoginAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0, min: 0 },
     lockedUntil: { type: Date },
@@ -537,6 +538,50 @@ app.post(
   }
 );
 
+app.post(
+  "/api/auth/reset-request",
+  [
+    body("email").isEmail().withMessage("A valid email is required").normalizeEmail(),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const user = await OrganizationUser.findOne({ email: req.body.email });
+      if (user && user.status === "Active") {
+        user.resetRequestedAt = new Date();
+        await user.save();
+
+        writeAuditLog({
+          action: "organization_user_reset_requested",
+          actor: user.fullName,
+          role: user.role,
+          changedFields: ["resetRequestedAt"],
+          metadata: {
+            userEmail: user.email,
+            userRole: user.role,
+          },
+        });
+      }
+
+      res.json({
+        requested: true,
+        message: "If this email belongs to an active organization user, an administrator will see the reset request.",
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to request access reset" });
+    }
+  }
+);
+
 app.get("/api/admin/audit-logs", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
@@ -710,6 +755,7 @@ app.patch(
         changedFields.push("accessCode");
         user.accessCodeHash = hashAccessCode(req.body.accessCode);
         user.accessCodeUpdatedAt = new Date();
+        user.resetRequestedAt = undefined;
         user.failedLoginAttempts = 0;
         user.lockedUntil = undefined;
       }
