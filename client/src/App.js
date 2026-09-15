@@ -285,7 +285,7 @@ function AnalyticsCard({ title, children }) {
   );
 }
 
-function CommandMetric({ label, value, detail, accent, icon, onClick }) {
+function CommandMetric({ label, value, detail, accent, icon, onClick, active = false }) {
   return (
     <Card
       component={onClick ? "button" : "div"}
@@ -294,10 +294,10 @@ function CommandMetric({ label, value, detail, accent, icon, onClick }) {
       sx={{
         width: "100%",
         textAlign: "left",
-        border: "1px solid rgba(15, 23, 42, 0.08)",
+        border: active ? `2px solid ${accent}` : "1px solid rgba(15, 23, 42, 0.08)",
         borderRadius: 2,
-        bgcolor: "rgba(255,255,255,0.96)",
-        boxShadow: "0 12px 28px rgba(15, 23, 42, 0.08)",
+        bgcolor: active ? "rgba(240,253,250,0.98)" : "rgba(255,255,255,0.96)",
+        boxShadow: active ? "0 16px 34px rgba(15, 118, 110, 0.16)" : "0 12px 28px rgba(15, 23, 42, 0.08)",
         cursor: onClick ? "pointer" : "default",
         p: 0,
         transition: "transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease",
@@ -459,19 +459,26 @@ function MapView() {
     return showDemoData ? [...liveRecords, ...demoData] : liveRecords;
   }, [liveData, showDemoData]);
 
-  const filteredData = useMemo(() => data.filter((item) => {
+  const applyFilters = useCallback((rows, options = {}) => rows.filter((item) => {
+    const { ignoreStatus = false, ignorePriority = false } = options;
     const status = item.status || "New";
     const priority = getPriority(item, organizationSettings);
     const caseDate = parseDateValue(item.date);
     const startsAfter = filters.startDate ? caseDate >= parseDateValue(filters.startDate) : true;
     const endsBefore = filters.endDate ? caseDate <= parseDateValue(filters.endDate) : true;
     const diseaseMatch = filters.disease === "All" || item.disease === filters.disease;
-    const statusMatch = filters.status === "All" || status === filters.status;
-    const priorityMatch = filters.priority === "All" || priority === filters.priority;
+    const statusMatch = ignoreStatus || filters.status === "All" || status === filters.status;
+    const priorityMatch = ignorePriority || filters.priority === "All" || priority === filters.priority;
     const ageGroupMatch = filters.ageGroup === "All" || (item.ageGroup || "Unknown") === filters.ageGroup;
     const sexMatch = filters.sex === "All" || (item.sex || "Unknown") === filters.sex;
     return startsAfter && endsBefore && diseaseMatch && statusMatch && priorityMatch && ageGroupMatch && sexMatch;
-  }), [data, filters, organizationSettings]);
+  }), [filters, organizationSettings]);
+
+  const filteredData = useMemo(() => applyFilters(data), [applyFilters, data]);
+  const commandMetricData = useMemo(
+    () => applyFilters(data, { ignoreStatus: true, ignorePriority: true }),
+    [applyFilters, data]
+  );
 
   const diseaseOptions = useMemo(
     () => [
@@ -484,10 +491,10 @@ function MapView() {
   );
 
   const totalReported = filteredData.reduce((sum, d) => sum + d.cases, 0);
-  const newRecords = filteredData.filter((item) => (item.status || "New") === "New");
-  const underReviewRecords = filteredData.filter((item) => (item.status || "New") === "Under Review");
-  const confirmedRecords = filteredData.filter((item) => (item.status || "New") === "Confirmed");
-  const highPriorityRecords = filteredData.filter((item) => getPriority(item, organizationSettings) === "High");
+  const newRecords = commandMetricData.filter((item) => (item.status || "New") === "New");
+  const underReviewRecords = commandMetricData.filter((item) => (item.status || "New") === "Under Review");
+  const confirmedRecords = commandMetricData.filter((item) => (item.status || "New") === "Confirmed");
+  const highPriorityRecords = commandMetricData.filter((item) => getPriority(item, organizationSettings) === "High");
   const pendingReviewCount = newRecords.length + underReviewRecords.length;
   const recentCases = filteredData.filter((c) => {
     const today = new Date();
@@ -589,6 +596,22 @@ function MapView() {
 
   const updateFilter = (field, value) => {
     setFilters((current) => ({ ...current, [field]: value }));
+  };
+
+  const toggleStatusFilter = (status) => {
+    setFilters((current) => ({
+      ...current,
+      status: current.status === status ? "All" : status,
+      priority: "All",
+    }));
+  };
+
+  const togglePriorityFilter = (priority) => {
+    setFilters((current) => ({
+      ...current,
+      priority: current.priority === priority ? "All" : priority,
+      status: "All",
+    }));
   };
 
   const resetFilters = () => {
@@ -1167,7 +1190,8 @@ function MapView() {
               detail="awaiting first review"
               accent="#f97316"
               icon={<InsightsIcon />}
-              onClick={() => setFilters((current) => ({ ...current, status: "New" }))}
+              active={filters.status === "New"}
+              onClick={() => toggleStatusFilter("New")}
             />
             <CommandMetric
               label="Under Review"
@@ -1175,7 +1199,8 @@ function MapView() {
               detail="being triaged"
               accent="#2563eb"
               icon={<TableChartIcon />}
-              onClick={() => setFilters((current) => ({ ...current, status: "Under Review" }))}
+              active={filters.status === "Under Review"}
+              onClick={() => toggleStatusFilter("Under Review")}
             />
             <CommandMetric
               label="High Priority"
@@ -1183,7 +1208,8 @@ function MapView() {
               detail="needs attention"
               accent="#dc2626"
               icon={<WhatshotIcon />}
-              onClick={() => setFilters((current) => ({ ...current, priority: "High" }))}
+              active={filters.priority === "High"}
+              onClick={() => togglePriorityFilter("High")}
             />
             <CommandMetric
               label="Confirmed"
@@ -1191,7 +1217,8 @@ function MapView() {
               detail="validated signals"
               accent="#0f766e"
               icon={<CoronavirusIcon />}
-              onClick={() => setFilters((current) => ({ ...current, status: "Confirmed" }))}
+              active={filters.status === "Confirmed"}
+              onClick={() => toggleStatusFilter("Confirmed")}
             />
           </Box>
           <Box
