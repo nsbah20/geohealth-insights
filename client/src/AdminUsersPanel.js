@@ -87,6 +87,23 @@ function buildInviteMessage(user, settings) {
   ].filter(Boolean).join("\n");
 }
 
+function buildResetHandoffMessage(user, settings) {
+  const signInUrl = `${window.location.origin}/admin`;
+  return [
+    `Hello ${user.fullName},`,
+    "",
+    `Your ${settings.organizationName} access has been reset by an administrator.`,
+    `Sign in here: ${signInUrl}`,
+    "",
+    "Sign-in type: Organization user",
+    `Email: ${user.email}`,
+    "New access code: provided separately by your administrator",
+    `Approved session window: ${formatSessionWindow(user.sessionDurationHours)}`,
+    "",
+    "For security, do not share your access code.",
+  ].join("\n");
+}
+
 export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged }) {
   const { settings } = useOrganizationSettings();
   const [users, setUsers] = useState([]);
@@ -282,6 +299,33 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     }
   };
 
+  const prepareResetHandoff = async (user) => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    const resetMessage = buildResetHandoffMessage(user, settings);
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(resetMessage);
+      } else {
+        window.prompt("Copy this reset message", resetMessage);
+      }
+
+      const res = await axios.post(`${API_URL}/api/admin/users/${user._id}/reset-handoff`, {}, { headers: authHeaders(token) });
+      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
+      setMessage({ type: "success", text: `Reset handoff message copied for ${user.fullName}. Share the new access code separately.` });
+      onChanged?.();
+    } catch (err) {
+      if (err.response?.status === 401) {
+        clearAdminToken();
+        onUnauthorized?.();
+      }
+      const text = err.response?.data?.error || "Unable to prepare this reset handoff. Browser clipboard permission may be required.";
+      setMessage({ type: "error", text });
+    }
+  };
+
   if (!authUser) {
     return (
       <Alert severity="warning">
@@ -399,9 +443,16 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                         <Typography variant="caption" color="text.secondary" display="block">
                           {formatDateTime(user.resetRequestedAt)}
                         </Typography>
+                        {user.resetHandoffAt && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Handoff {formatDateTime(user.resetHandoffAt)}
+                          </Typography>
+                        )}
                       </Box>
                     ) : (
-                      <Typography variant="caption" color="text.secondary">None</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {user.resetHandoffAt ? `Last handoff ${formatDateTime(user.resetHandoffAt)}` : "None"}
+                      </Typography>
                     )}
                   </TableCell>
                   <TableCell>
@@ -460,6 +511,15 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                         sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
                       >
                         Set Code
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ContentCopyIcon />}
+                        onClick={() => prepareResetHandoff(user)}
+                        sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Reset Info
                       </Button>
                       <Button
                         size="small"

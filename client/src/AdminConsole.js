@@ -79,6 +79,7 @@ const baseReadinessItems = [
   { label: "User and role directory", state: "Active", tone: "success" },
   { label: "Invite handoff tracking", state: "Active", tone: "success" },
   { label: "Access reset requests", state: "Active", tone: "success" },
+  { label: "Reset handoff tracking", state: "Active", tone: "success" },
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
 ];
 
@@ -135,6 +136,7 @@ function formatAction(action) {
   if (action === "organization_user_updated") return "Organization user updated";
   if (action === "organization_user_invite_prepared") return "User invite prepared";
   if (action === "organization_user_reset_requested") return "Access reset requested";
+  if (action === "organization_user_reset_handoff_prepared") return "Reset handoff prepared";
   return String(action || "Activity").replace(/_/g, " ");
 }
 
@@ -549,7 +551,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.organizationName} now supports role-based access, per-user session windows, admin-reviewed user activity, invite handoff tracking, and access reset requests. Next we can add provider-sent reset emails and single sign-on for production institutions.
+            {organizationSettings.organizationName} now supports role-based access, per-user session windows, admin-reviewed user activity, invite handoff tracking, and access reset handoffs. Next we can add provider-sent reset emails and single sign-on for production institutions.
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -564,7 +566,7 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            Current sign-in uses email and assigned access codes. Users can request an access reset now; provider-sent emails, passwords, and SSO can replace those codes later.
+            Current sign-in uses email and assigned access codes. Admins can copy invite and reset handoff messages now; provider-sent emails, passwords, and SSO can replace those codes later.
           </Typography>
         </AdminPanel>
       </Box>
