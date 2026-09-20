@@ -397,6 +397,159 @@ export default function AdminConsole() {
     refreshSettings();
   }, [fetchAuditLogs, refreshSettings]);
 
+  const signInForm = (
+    <Box component="form" onSubmit={handleLogin}>
+      <Stack spacing={1.4}>
+        <TextField
+          select
+          label="Sign In Type"
+          value={loginMode}
+          onChange={(event) => setLoginMode(event.target.value)}
+          size="small"
+          fullWidth
+        >
+          <MenuItem value="admin">Admin setup code</MenuItem>
+          <MenuItem value="user">Organization user</MenuItem>
+        </TextField>
+        {loginMode === "user" && (
+          <TextField
+            label="Email"
+            type="email"
+            value={userEmail}
+            onChange={(event) => setUserEmail(event.target.value)}
+            size="small"
+            required
+            fullWidth
+          />
+        )}
+        <TextField
+          label={loginMode === "user" ? "User Access Code" : "Admin Access Code"}
+          type="password"
+          value={accessCode}
+          onChange={(event) => setAccessCode(event.target.value)}
+          size="small"
+          fullWidth
+        />
+        <Button
+          type="submit"
+          variant="contained"
+          size="large"
+          startIcon={<LoginIcon />}
+          disabled={signingIn || !accessCode.trim() || (loginMode === "user" && !userEmail.trim())}
+          sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
+        >
+          {signingIn ? "Signing In..." : "Sign In"}
+        </Button>
+      </Stack>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.2 }}>
+        Admin setup code manages the organization. Listed users can sign in with their email and assigned access code.
+      </Typography>
+      {loginMode === "user" && (
+        <Button
+          type="button"
+          variant="text"
+          onClick={handleResetRequest}
+          disabled={requestingReset || !userEmail.trim()}
+          sx={{ mt: 0.75, px: 0, fontWeight: 800 }}
+        >
+          {requestingReset ? "Requesting reset..." : "Request access reset"}
+        </Button>
+      )}
+    </Box>
+  );
+
+  if (!authUser) {
+    return (
+      <Box
+        sx={{
+          minHeight: "calc(100vh - 72px)",
+          bgcolor: "#eef4f2",
+          display: "grid",
+          placeItems: "center",
+          p: { xs: 2, md: 3 },
+        }}
+      >
+        <Card
+          elevation={0}
+          sx={{
+            width: "100%",
+            maxWidth: 980,
+            borderRadius: 2,
+            overflow: "hidden",
+            border: "1px solid rgba(15, 23, 42, 0.08)",
+            boxShadow: "0 24px 70px rgba(15, 23, 42, 0.14)",
+          }}
+        >
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "0.9fr 1.1fr" },
+              minHeight: { md: 460 },
+            }}
+          >
+            <Box
+              sx={{
+                bgcolor: "#082f2f",
+                color: "white",
+                p: { xs: 3, md: 4 },
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                gap: 4,
+              }}
+            >
+              <Box>
+                <Box
+                  sx={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: 2,
+                    display: "grid",
+                    placeItems: "center",
+                    bgcolor: "#0f766e",
+                    mb: 2,
+                  }}
+                >
+                  <SecurityIcon />
+                </Box>
+                <Typography variant="h4" fontWeight={900} sx={{ mb: 1 }}>
+                  Secure Staff Sign-In
+                </Typography>
+                <Typography variant="body1" sx={{ color: "rgba(255,255,255,0.78)" }}>
+                  Access to admin tools, case review, user management, audit logs, and protected records requires an approved organization session.
+                </Typography>
+              </Box>
+              <Stack spacing={1} alignItems="flex-start">
+                <StatusPill label={`API ${apiHealth.status}`} color={apiHealth.color} />
+                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.7)" }}>
+                  Public surveillance remains available from the map. Staff records stay behind this access gate.
+                </Typography>
+              </Stack>
+            </Box>
+
+            <Box sx={{ p: { xs: 3, md: 4 }, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <Typography variant="overline" color="text.secondary" fontWeight={900}>
+                {organizationSettings.organizationName}
+              </Typography>
+              <Typography variant="h5" color="#102a2c" fontWeight={900} sx={{ mb: 1 }}>
+                Sign in to continue
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+                Choose your sign-in type and enter your approved access details.
+              </Typography>
+              {authMessage && (
+                <Alert severity={authMessage.type} sx={{ mb: 2 }}>
+                  {authMessage.text}
+                </Alert>
+              )}
+              {signInForm}
+            </Box>
+          </Box>
+        </Card>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ minHeight: "calc(100vh - 72px)", bgcolor: "#eef4f2", p: { xs: 2, md: 3 } }}>
       <Stack
@@ -676,93 +829,33 @@ export default function AdminConsole() {
             </Alert>
           )}
 
-          {authUser ? (
-            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2}>
-              <Box>
-                <Typography variant="body1" fontWeight={900} color="#102a2c">
-                  {authUser.name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Role: {authUser.role}. {authUser.canAdmin ? "This session can manage users and settings." : authUser.canReview ? "This session can save case review updates." : "This session can access assigned organization workflows."}
-                </Typography>
-                <Typography variant="caption" color={sessionExpiringSoon ? "warning.main" : "text.secondary"} display="block" sx={{ mt: 0.5, fontWeight: 700 }}>
-                  Session active until {formatSessionExpiry(authUser)}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
-                </Typography>
-                {sessionExpiringSoon && (
-                  <Alert severity="warning" sx={{ mt: 1.2, fontSize: "0.8rem", borderRadius: 2 }}>
-                    Your session is almost up. Sign out and sign back in if you need more time.
-                  </Alert>
-                )}
-              </Box>
-              <Button
-                variant="outlined"
-                color="inherit"
-                startIcon={<LogoutIcon />}
-                onClick={handleLogout}
-                sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", sm: "center" } }}
-              >
-                Sign Out
-              </Button>
-            </Stack>
-          ) : (
-            <Box component="form" onSubmit={handleLogin}>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ xs: "stretch", sm: "center" }}>
-                <TextField
-                  select
-                  label="Sign In Type"
-                  value={loginMode}
-                  onChange={(event) => setLoginMode(event.target.value)}
-                  size="small"
-                  sx={{ maxWidth: { sm: 240 }, flex: 1 }}
-                >
-                  <MenuItem value="admin">Admin setup code</MenuItem>
-                  <MenuItem value="user">Organization user</MenuItem>
-                </TextField>
-                {loginMode === "user" && (
-                  <TextField
-                    label="Email"
-                    type="email"
-                    value={userEmail}
-                    onChange={(event) => setUserEmail(event.target.value)}
-                    size="small"
-                    required
-                    sx={{ maxWidth: { sm: 320 }, flex: 1 }}
-                  />
-                )}
-                <TextField
-                  label={loginMode === "user" ? "User Access Code" : "Admin Access Code"}
-                  type="password"
-                  value={accessCode}
-                  onChange={(event) => setAccessCode(event.target.value)}
-                  size="small"
-                  sx={{ maxWidth: { sm: 360 }, flex: 1 }}
-                />
-                <Button
-                  type="submit"
-                  variant="contained"
-                  startIcon={<LoginIcon />}
-                  disabled={signingIn || !accessCode.trim() || (loginMode === "user" && !userEmail.trim())}
-                  sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
-                >
-                  {signingIn ? "Signing In..." : "Sign In"}
-                </Button>
-              </Stack>
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                Admin setup code manages the organization. Listed users can sign in with their email and assigned access code.
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2}>
+            <Box>
+              <Typography variant="body1" fontWeight={900} color="#102a2c">
+                {authUser.name}
               </Typography>
-              {loginMode === "user" && (
-                <Button
-                  type="button"
-                  variant="text"
-                  onClick={handleResetRequest}
-                  disabled={requestingReset || !userEmail.trim()}
-                  sx={{ mt: 0.75, px: 0, fontWeight: 800 }}
-                >
-                  {requestingReset ? "Requesting reset..." : "Request access reset"}
-                </Button>
+              <Typography variant="body2" color="text.secondary">
+                Role: {authUser.role}. {authUser.canAdmin ? "This session can manage users and settings." : authUser.canReview ? "This session can save case review updates." : "This session can access assigned organization workflows."}
+              </Typography>
+              <Typography variant="caption" color={sessionExpiringSoon ? "warning.main" : "text.secondary"} display="block" sx={{ mt: 0.5, fontWeight: 700 }}>
+                Session active until {formatSessionExpiry(authUser)}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
+              </Typography>
+              {sessionExpiringSoon && (
+                <Alert severity="warning" sx={{ mt: 1.2, fontSize: "0.8rem", borderRadius: 2 }}>
+                  Your session is almost up. Sign out and sign back in if you need more time.
+                </Alert>
               )}
             </Box>
-          )}
+            <Button
+              variant="outlined"
+              color="inherit"
+              startIcon={<LogoutIcon />}
+              onClick={handleLogout}
+              sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", sm: "center" } }}
+            >
+              Sign Out
+            </Button>
+          </Stack>
         </AdminPanel>
 
         <AdminPanel title="Audit Logs" icon={<FactCheckIcon />}>
