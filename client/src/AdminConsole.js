@@ -42,6 +42,7 @@ import {
 import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 import AdminUsersPanel from "./AdminUsersPanel";
+import surveillanceOperationsBackground from "./assets/surveillance-operations-background.webp";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -405,7 +406,6 @@ export default function AdminConsole() {
           label="Sign In Type"
           value={loginMode}
           onChange={(event) => setLoginMode(event.target.value)}
-          size="small"
           fullWidth
         >
           <MenuItem value="admin">Admin setup code</MenuItem>
@@ -417,9 +417,9 @@ export default function AdminConsole() {
             type="email"
             value={userEmail}
             onChange={(event) => setUserEmail(event.target.value)}
-            size="small"
             required
             fullWidth
+            autoComplete="email"
           />
         )}
         <TextField
@@ -427,8 +427,8 @@ export default function AdminConsole() {
           type="password"
           value={accessCode}
           onChange={(event) => setAccessCode(event.target.value)}
-          size="small"
           fullWidth
+          autoComplete="current-password"
         />
         <Button
           type="submit"
@@ -436,7 +436,13 @@ export default function AdminConsole() {
           size="large"
           startIcon={<LoginIcon />}
           disabled={signingIn || !accessCode.trim() || (loginMode === "user" && !userEmail.trim())}
-          sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}
+          sx={{
+            minHeight: 48,
+            bgcolor: "#0f766e",
+            fontWeight: 900,
+            boxShadow: "none",
+            "&:hover": { bgcolor: "#115e59", boxShadow: "none" },
+          }}
         >
           {signingIn ? "Signing In..." : "Sign In"}
         </Button>
@@ -463,86 +469,133 @@ export default function AdminConsole() {
       <Box
         sx={{
           minHeight: "calc(100vh - 72px)",
-          bgcolor: "#eef4f2",
+          position: "relative",
           display: "grid",
           placeItems: "center",
-          p: { xs: 2, md: 3 },
+          overflow: "hidden",
+          p: { xs: 2, sm: 3, lg: 5 },
+          backgroundImage: `url(${surveillanceOperationsBackground})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            inset: 0,
+            bgcolor: "rgba(5, 30, 32, 0.72)",
+          },
         }}
       >
         <Card
           elevation={0}
           sx={{
+            position: "relative",
             width: "100%",
-            maxWidth: 980,
-            borderRadius: 2,
+            maxWidth: 1120,
+            borderRadius: 1,
             overflow: "hidden",
-            border: "1px solid rgba(15, 23, 42, 0.08)",
-            boxShadow: "0 24px 70px rgba(15, 23, 42, 0.14)",
+            border: "1px solid rgba(255, 255, 255, 0.32)",
+            boxShadow: "0 30px 90px rgba(2, 15, 17, 0.38)",
+            bgcolor: "rgba(255, 255, 255, 0.98)",
           }}
         >
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "0.9fr 1.1fr" },
-              minHeight: { md: 460 },
+              gridTemplateColumns: { xs: "1fr", md: "1.05fr 0.95fr" },
+              minHeight: { md: 540 },
             }}
           >
             <Box
               sx={{
-                bgcolor: "#082f2f",
+                bgcolor: "rgba(6, 48, 49, 0.98)",
                 color: "white",
-                p: { xs: 3, md: 4 },
+                p: { xs: 3, sm: 4, md: 5 },
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
-                gap: 4,
+                gap: { xs: 3, md: 5 },
               }}
             >
               <Box>
-                <Box
-                  sx={{
-                    width: 52,
-                    height: 52,
-                    borderRadius: 2,
-                    display: "grid",
-                    placeItems: "center",
-                    bgcolor: "#0f766e",
-                    mb: 2,
-                  }}
-                >
-                  <SecurityIcon />
-                </Box>
-                <Typography variant="h4" fontWeight={900} sx={{ mb: 1 }}>
-                  Secure Staff Sign-In
+                <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 3 }}>
+                  <Box
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 1,
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: "#0f8a80",
+                      color: "white",
+                    }}
+                  >
+                    <SecurityIcon />
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ display: "block", color: "#99f6e4", fontWeight: 900, textTransform: "uppercase" }}>
+                      Protected workspace
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.72)" }}>
+                      Role-based institutional access
+                    </Typography>
+                  </Box>
+                </Stack>
+                <Typography component="h1" sx={{ fontSize: { xs: "2rem", md: "2.5rem" }, lineHeight: 1.08, fontWeight: 900, mb: 1.5 }}>
+                  Secure staff access
                 </Typography>
-                <Typography variant="body1" sx={{ color: "rgba(255,255,255,0.78)" }}>
-                  Access to admin tools, case review, user management, audit logs, and protected records requires an approved organization session.
+                <Typography variant="body1" sx={{ maxWidth: 500, color: "rgba(255,255,255,0.8)", lineHeight: 1.7 }}>
+                  Enter the workspace used to verify reports, coordinate case review, and maintain an accountable record of every decision.
                 </Typography>
+
+                <Stack spacing={1.6} sx={{ mt: 4, display: { xs: "none", md: "flex" } }}>
+                  {[
+                    { icon: <RuleIcon fontSize="small" />, title: "Role-based permissions", detail: "Each user sees only the tools assigned to their role." },
+                    { icon: <FactCheckIcon fontSize="small" />, title: "Audited activity", detail: "Reviews, exports, and administrative changes are recorded." },
+                    { icon: <CloudDoneIcon fontSize="small" />, title: "Controlled sessions", detail: "Access follows organization-approved session windows." },
+                  ].map((item) => (
+                    <Stack key={item.title} direction="row" spacing={1.4} alignItems="flex-start">
+                      <Box sx={{ mt: 0.2, color: "#fbbf24" }}>{item.icon}</Box>
+                      <Box>
+                        <Typography variant="body2" fontWeight={900}>{item.title}</Typography>
+                        <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.68)" }}>{item.detail}</Typography>
+                      </Box>
+                    </Stack>
+                  ))}
+                </Stack>
               </Box>
-              <Stack spacing={1} alignItems="flex-start">
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ xs: "flex-start", sm: "center" }}>
                 <StatusPill label={`API ${apiHealth.status}`} color={apiHealth.color} />
-                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.7)" }}>
-                  Public surveillance remains available from the map. Staff records stay behind this access gate.
+                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.68)" }}>
+                  Public surveillance remains available without staff access.
                 </Typography>
               </Stack>
             </Box>
 
-            <Box sx={{ p: { xs: 3, md: 4 }, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <Typography variant="overline" color="text.secondary" fontWeight={900}>
-                {organizationSettings.organizationName}
-              </Typography>
-              <Typography variant="h5" color="#102a2c" fontWeight={900} sx={{ mb: 1 }}>
-                Sign in to continue
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-                Choose your sign-in type and enter your approved access details.
-              </Typography>
-              {authMessage && (
-                <Alert severity={authMessage.type} sx={{ mb: 2 }}>
-                  {authMessage.text}
-                </Alert>
-              )}
-              {signInForm}
+            <Box sx={{ p: { xs: 3, sm: 4, md: 5 }, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <Box sx={{ maxWidth: 460, width: "100%", mx: "auto" }}>
+                <Typography variant="overline" color="#0f766e" fontWeight={900}>
+                  {organizationSettings.organizationName}
+                </Typography>
+                <Typography variant="h5" color="#102a2c" fontWeight={900} sx={{ mt: 0.4, mb: 1 }}>
+                  Sign in to your workspace
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Use the access method provided by your organization administrator.
+                </Typography>
+                {authMessage && (
+                  <Alert severity={authMessage.type} sx={{ mb: 2 }}>
+                    {authMessage.text}
+                  </Alert>
+                )}
+                {signInForm}
+                <Divider sx={{ my: 2.5 }} />
+                <Stack direction="row" spacing={1} alignItems="flex-start">
+                  <SecurityIcon sx={{ color: "#0f766e", fontSize: 18, mt: 0.1 }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                    Authorized staff only. Access is limited by role, monitored through audit logs, and automatically ends when the approved session expires.
+                  </Typography>
+                </Stack>
+              </Box>
             </Box>
           </Box>
         </Card>
