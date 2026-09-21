@@ -16,6 +16,7 @@ export const DEFAULT_ORGANIZATION_SETTINGS = {
   reportSourceList: ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"],
   emailDeliveryConfigured: false,
   emailProvider: "Manual copy",
+  passwordlessSignInConfigured: false,
 };
 
 const OrganizationSettingsContext = createContext({

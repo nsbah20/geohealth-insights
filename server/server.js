@@ -40,6 +40,7 @@ const MIN_SESSION_DURATION_HOURS = 1;
 const MAX_SESSION_DURATION_HOURS = 24;
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const EMAIL_LOGIN_LINK_TTL_MS = 15 * 60 * 1000;
 const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE;
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.MONGODB_URI || "geohealth-dev-session-secret";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
@@ -76,6 +77,14 @@ const limiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
 });
 app.use("/api", limiter);
+
+const emailLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sign-in link requests. Please try again later." },
+});
 
 // ── Lightweight reviewer sessions ───────────────────────────────────────────
 function base64UrlEncode(value) {
@@ -364,6 +373,17 @@ const organizationUserSchema = new mongoose.Schema(
 organizationUserSchema.index({ email: 1 }, { unique: true });
 const OrganizationUser = mongoose.model("OrganizationUser", organizationUserSchema);
 
+const emailLoginLinkSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "OrganizationUser", required: true, index: true },
+    tokenHash: { type: String, required: true, unique: true, index: true },
+    expiresAt: { type: Date, required: true, index: { expires: 0 } },
+    usedAt: { type: Date },
+  },
+  { timestamps: true }
+);
+const EmailLoginLink = mongoose.model("EmailLoginLink", emailLoginLinkSchema);
+
 async function writeAuditLog(entry) {
   try {
     await AuditLog.create(entry);
@@ -444,6 +464,38 @@ function buildStaffEmail({ user, settings, kind }) {
           <ul style="margin:24px 0 20px;padding-left:20px;line-height:1.5;">${detailRows}</ul>
           <p style="margin:0 0 12px;padding:12px;background:#fff7ed;border-left:4px solid #f59e0b;line-height:1.5;">${escapeHtml(codeLine)}</p>
           <p style="margin:0;color:#64748b;font-size:13px;line-height:1.5;">For security, do not share your access code.</p>
+        </div>
+      </div>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+function buildEmailLoginEmail({ user, settings, token }) {
+  const organizationName = settings.organizationName || DEFAULT_ORGANIZATION_SETTINGS.organizationName;
+  const signInUrl = `${PUBLIC_APP_URL}/admin#login_token=${encodeURIComponent(token)}`;
+  const subject = `Your ${organizationName} secure sign-in link`;
+  const text = [
+    `Hello ${user.fullName},`,
+    "",
+    `Use this single-use link to sign in to ${organizationName}:`,
+    signInUrl,
+    "",
+    "This link expires in 15 minutes. If you did not request it, you can ignore this email.",
+  ].join("\n");
+  const html = `
+    <div style="margin:0;background:#eef4f2;padding:32px 16px;font-family:Arial,sans-serif;color:#102a2c;">
+      <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #dbe7e4;border-radius:8px;overflow:hidden;">
+        <div style="background:#083b3b;padding:24px 28px;color:#ffffff;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#99f6e4;">One-time staff sign-in</div>
+          <h1 style="margin:8px 0 0;font-size:24px;line-height:1.2;">${escapeHtml(organizationName)}</h1>
+        </div>
+        <div style="padding:28px;">
+          <p style="margin:0 0 16px;">Hello ${escapeHtml(user.fullName)},</p>
+          <p style="margin:0 0 20px;line-height:1.6;">Use the button below to open your approved staff workspace.</p>
+          <a href="${escapeHtml(signInUrl)}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:6px;">Sign in securely</a>
+          <p style="margin:24px 0 0;padding:12px;background:#fff7ed;border-left:4px solid #f59e0b;line-height:1.5;">This link can be used once and expires in 15 minutes.</p>
+          <p style="margin:16px 0 0;color:#64748b;font-size:13px;line-height:1.5;">If you did not request this email, no action is required.</p>
         </div>
       </div>
     </div>`;
@@ -697,6 +749,137 @@ app.post(
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to request access reset" });
+    }
+  }
+);
+
+app.post(
+  "/api/auth/email-link",
+  emailLoginLimiter,
+  [body("email").isEmail().withMessage("A valid email is required").normalizeEmail()],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+    if (!isEmailDeliveryConfigured()) {
+      return res.status(503).json({ error: "Email sign-in is not configured yet." });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const genericResponse = {
+      requested: true,
+      message: "If this email belongs to an active organization user, a sign-in link is on its way.",
+    };
+
+    try {
+      const user = await OrganizationUser.findOne({ email: req.body.email });
+      if (!user || user.status !== "Active") {
+        return res.json(genericResponse);
+      }
+
+      await EmailLoginLink.deleteMany({ userId: user._id, usedAt: null });
+      const token = crypto.randomBytes(32).toString("base64url");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+      const loginLink = await EmailLoginLink.create({
+        userId: user._id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + EMAIL_LOGIN_LINK_TTL_MS),
+      });
+      const settings = await getOrganizationSettings();
+      const email = buildEmailLoginEmail({ user, settings, token });
+
+      try {
+        await sendTransactionalEmail({
+          to: user.email,
+          ...email,
+          idempotencyKey: `email-login/${user.id}/${loginLink.createdAt.getTime()}`,
+        });
+      } catch (err) {
+        await EmailLoginLink.deleteOne({ _id: loginLink._id });
+        throw err;
+      }
+
+      writeAuditLog({
+        action: "organization_user_email_link_requested",
+        actor: user.fullName,
+        role: user.role,
+        metadata: { userEmail: user.email, expiresAt: loginLink.expiresAt },
+      });
+      return res.json(genericResponse);
+    } catch (err) {
+      console.error(err);
+      return res.status(502).json({ error: "Unable to send a sign-in link right now. Please try again later." });
+    }
+  }
+);
+
+app.post(
+  "/api/auth/email-link/exchange",
+  [body("token").notEmpty().withMessage("A sign-in token is required").trim()],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const tokenHash = crypto.createHash("sha256").update(req.body.token).digest("hex");
+      const loginLink = await EmailLoginLink.findOneAndUpdate(
+        { tokenHash, usedAt: null, expiresAt: { $gt: new Date() } },
+        { $set: { usedAt: new Date() } },
+        { new: true }
+      );
+      if (!loginLink) {
+        return res.status(401).json({ error: "This sign-in link is invalid, expired, or has already been used." });
+      }
+
+      const user = await OrganizationUser.findById(loginLink.userId);
+      if (!user || user.status !== "Active") {
+        return res.status(401).json({ error: "This organization account is no longer active." });
+      }
+
+      const sessionUser = {
+        id: String(user._id),
+        name: user.fullName,
+        email: user.email,
+        role: user.role,
+        facility: user.facility,
+        jurisdiction: user.jurisdiction,
+        sessionDurationHours: normalizeSessionDurationHours(user.sessionDurationHours),
+      };
+      const sessionDurationMs = getSessionDurationMs(sessionUser.sessionDurationHours);
+      user.lastLoginAt = new Date();
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = undefined;
+      await user.save();
+
+      writeAuditLog({
+        action: "organization_user_email_link_login",
+        actor: user.fullName,
+        role: user.role,
+        metadata: {
+          userEmail: user.email,
+          userRole: user.role,
+          sessionDurationHours: sessionUser.sessionDurationHours,
+          source: "email_login_link",
+        },
+      });
+
+      return res.json({
+        token: createSessionToken(sessionUser, sessionDurationMs),
+        user: buildSessionUser({ ...sessionUser, exp: Date.now() + sessionDurationMs }),
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Unable to complete email sign-in." });
     }
   }
 );
@@ -1050,6 +1233,7 @@ app.get("/api/settings", async (req, res) => {
       reportSourceList: settings.reportSourceList,
       emailDeliveryConfigured: isEmailDeliveryConfigured(),
       emailProvider: isEmailDeliveryConfigured() ? "Resend" : "Manual copy",
+      passwordlessSignInConfigured: isEmailDeliveryConfigured(),
     });
   } catch (err) {
     console.error(err);

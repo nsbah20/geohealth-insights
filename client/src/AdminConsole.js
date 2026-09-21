@@ -29,6 +29,7 @@ import SecurityIcon from "@mui/icons-material/Security";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
+import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import {
   authHeaders,
   clearAdminToken,
@@ -83,6 +84,7 @@ const baseReadinessItems = [
   { label: "Reset handoff tracking", state: "Active", tone: "success" },
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
   { label: "Transactional email delivery", state: "Needs setup", tone: "warning" },
+  { label: "Passwordless email sign-in", state: "Needs setup", tone: "warning" },
 ];
 
 const governanceItems = [
@@ -128,6 +130,8 @@ function formatAction(action) {
   if (action === "admin_login") return "Admin sign-in";
   if (action === "organization_user_login") return "Organization user sign-in";
   if (action === "organization_user_login_failed") return "Organization user sign-in failed";
+  if (action === "organization_user_email_link_requested") return "Email sign-in link requested";
+  if (action === "organization_user_email_link_login") return "Email link sign-in";
   if (action === "case_created") return "Case submitted";
   if (action === "case_review_updated") return "Case review updated";
   if (action === "case_deleted") return "Case deleted";
@@ -237,6 +241,7 @@ export default function AdminConsole() {
   const [authMessage, setAuthMessage] = useState(null);
   const [signingIn, setSigningIn] = useState(false);
   const [requestingReset, setRequestingReset] = useState(false);
+  const [exchangingEmailLink, setExchangingEmailLink] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditError, setAuditError] = useState(null);
   const [sessionTick, setSessionTick] = useState(0);
@@ -277,6 +282,34 @@ export default function AdminConsole() {
       });
   }, []);
 
+  useEffect(() => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const loginToken = hashParams.get("login_token") || queryParams.get("login_token");
+    if (!loginToken) return;
+
+    queryParams.delete("login_token");
+    hashParams.delete("login_token");
+    const cleanQuery = queryParams.toString();
+    const cleanHash = hashParams.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ""}${cleanHash ? `#${cleanHash}` : ""}`);
+    setExchangingEmailLink(true);
+    setAuthMessage({ type: "info", text: "Verifying your one-time sign-in link..." });
+
+    axios
+      .post(`${API_URL}/api/auth/email-link/exchange`, { token: loginToken })
+      .then((res) => {
+        setAdminToken(res.data.token);
+        setAuthUser(res.data.user);
+        setAuthMessage({ type: "success", text: `${res.data.user.role} session active for ${res.data.user.name}.` });
+      })
+      .catch((err) => {
+        const text = err.response?.data?.error || "Unable to use this sign-in link.";
+        setAuthMessage({ type: "error", text });
+      })
+      .finally(() => setExchangingEmailLink(false));
+  }, []);
+
   const fetchAuditLogs = useCallback(async (token = getAdminToken()) => {
     if (!token) {
       setAuditLogs([]);
@@ -308,6 +341,11 @@ export default function AdminConsole() {
     setAuthMessage(null);
 
     try {
+      if (loginMode === "email") {
+        const res = await axios.post(`${API_URL}/api/auth/email-link`, { email: userEmail });
+        setAuthMessage({ type: "success", text: res.data.message });
+        return;
+      }
       const endpoint = loginMode === "user" ? "/api/auth/user-login" : "/api/auth/login";
       const payload = loginMode === "user" ? { email: userEmail, accessCode } : { accessCode };
       const res = await axios.post(`${API_URL}${endpoint}`, payload);
@@ -378,9 +416,12 @@ export default function AdminConsole() {
       if (item.label === "Transactional email delivery" && organizationSettings.emailDeliveryConfigured) {
         return { ...item, state: "Active", tone: "success" };
       }
+      if (item.label === "Passwordless email sign-in" && organizationSettings.passwordlessSignInConfigured) {
+        return { ...item, state: "Active", tone: "success" };
+      }
       return item;
     }),
-    [authUser, organizationSettings.emailDeliveryConfigured]
+    [authUser, organizationSettings.emailDeliveryConfigured, organizationSettings.passwordlessSignInConfigured]
   );
 
   const readinessScore = useMemo(() => {
@@ -417,8 +458,9 @@ export default function AdminConsole() {
         >
           <MenuItem value="admin">Admin setup code</MenuItem>
           <MenuItem value="user">Organization user</MenuItem>
+          <MenuItem value="email">Email sign-in link</MenuItem>
         </TextField>
-        {loginMode === "user" && (
+        {(loginMode === "user" || loginMode === "email") && (
           <TextField
             label="Email"
             type="email"
@@ -429,20 +471,22 @@ export default function AdminConsole() {
             autoComplete="email"
           />
         )}
-        <TextField
-          label={loginMode === "user" ? "User Access Code" : "Admin Access Code"}
-          type="password"
-          value={accessCode}
-          onChange={(event) => setAccessCode(event.target.value)}
-          fullWidth
-          autoComplete="current-password"
-        />
+        {loginMode !== "email" && (
+          <TextField
+            label={loginMode === "user" ? "User Access Code" : "Admin Access Code"}
+            type="password"
+            value={accessCode}
+            onChange={(event) => setAccessCode(event.target.value)}
+            fullWidth
+            autoComplete="current-password"
+          />
+        )}
         <Button
           type="submit"
           variant="contained"
           size="large"
-          startIcon={<LoginIcon />}
-          disabled={signingIn || !accessCode.trim() || (loginMode === "user" && !userEmail.trim())}
+          startIcon={loginMode === "email" ? <EmailOutlinedIcon /> : <LoginIcon />}
+          disabled={signingIn || exchangingEmailLink || (loginMode === "email" ? !userEmail.trim() : (!accessCode.trim() || (loginMode === "user" && !userEmail.trim())))}
           sx={{
             minHeight: 48,
             bgcolor: "#0f766e",
@@ -451,11 +495,13 @@ export default function AdminConsole() {
             "&:hover": { bgcolor: "#115e59", boxShadow: "none" },
           }}
         >
-          {signingIn ? "Signing In..." : "Sign In"}
+          {signingIn ? (loginMode === "email" ? "Sending Link..." : "Signing In...") : (loginMode === "email" ? "Email Sign-In Link" : "Sign In")}
         </Button>
       </Stack>
       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.2 }}>
-        Admin setup code manages the organization. Listed users can sign in with their email and assigned access code.
+        {loginMode === "email"
+          ? "A single-use link will be sent to active users already approved by an administrator. It expires after 15 minutes."
+          : "Admin setup code manages the organization. Listed users can sign in with their email and assigned access code."}
       </Typography>
       {loginMode === "user" && (
         <Button
@@ -764,8 +810,8 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.emailDeliveryConfigured
-              ? `${organizationSettings.organizationName} can now send staff invite and reset notices through ${organizationSettings.emailProvider}. Access codes remain on a separate secure channel. Next we can add institutional single sign-on.`
+            {organizationSettings.passwordlessSignInConfigured
+              ? `${organizationSettings.organizationName} now supports single-use email sign-in links for approved users. Institutional single sign-on can follow when an organization-managed identity tenant is available.`
               : `${organizationSettings.organizationName} is ready for provider-sent staff invite and reset notices. Configure the email provider environment values to activate delivery; manual copy remains available until then.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
@@ -781,8 +827,8 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            {organizationSettings.emailDeliveryConfigured
-              ? "Email notices never contain access codes. Administrators must provide each code separately through an approved secure channel."
+            {organizationSettings.passwordlessSignInConfigured
+              ? "Email links expire after 15 minutes, work once, and preserve each user's assigned role and approved session window. Access-code sign-in remains available as a fallback."
               : "Required Render values: PUBLIC_APP_URL, RESEND_API_KEY, and EMAIL_FROM. No email is attempted until all required provider values are present."}
           </Typography>
         </AdminPanel>
