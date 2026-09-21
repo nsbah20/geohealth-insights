@@ -30,6 +30,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
 import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
+import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
 import {
   authHeaders,
   clearAdminToken,
@@ -43,6 +44,7 @@ import {
 import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 import AdminUsersPanel from "./AdminUsersPanel";
+import CaseImportPanel from "./CaseImportPanel";
 import surveillanceOperationsBackground from "./assets/surveillance-operations-background.webp";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
@@ -68,6 +70,11 @@ const rolePlan = [
     access: "View dashboards, trends, and exports for approved facilities or jurisdictions.",
     status: "Directory ready",
   },
+  {
+    role: "Data Manager",
+    access: "Stage and publish validated institutional case imports and support data-quality review.",
+    status: "Import ready",
+  },
 ];
 
 const baseReadinessItems = [
@@ -85,6 +92,7 @@ const baseReadinessItems = [
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
   { label: "Transactional email delivery", state: "Needs setup", tone: "warning" },
   { label: "Passwordless email sign-in", state: "Needs setup", tone: "warning" },
+  { label: "Controlled CSV import staging", state: "Active", tone: "success" },
 ];
 
 const governanceItems = [
@@ -137,6 +145,9 @@ function formatAction(action) {
   if (action === "case_deleted") return "Case deleted";
   if (action === "case_csv_exported") return "CSV exported";
   if (action === "case_pdf_printed") return "PDF report printed";
+  if (action === "case_import_staged") return "Case import staged";
+  if (action === "case_import_published") return "Case import published";
+  if (action === "case_import_rejected") return "Case import rejected";
   if (action === "organization_settings_updated") return "Organization settings updated";
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";
@@ -439,6 +450,10 @@ export default function AdminConsole() {
 
   const handleAdminDataChanged = useCallback(() => {
     fetchAuditLogs();
+    axios
+      .get(`${API_URL}/api/health-data`)
+      .then((res) => setCaseCount(res.data.length))
+      .catch(() => {});
   }, [fetchAuditLogs]);
 
   const handleSettingsSaved = useCallback(() => {
@@ -810,9 +825,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.passwordlessSignInConfigured
-              ? `${organizationSettings.organizationName} now supports single-use email sign-in links for approved users. Institutional single sign-on can follow when an organization-managed identity tenant is available.`
-              : `${organizationSettings.organizationName} is ready for provider-sent staff invite and reset notices. Configure the email provider environment values to activate delivery; manual copy remains available until then.`}
+            {`${organizationSettings.organizationName} now supports controlled CSV staging for approved institutional case data. Next we can enforce automated retention schedules and disposal evidence.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -827,9 +840,7 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            {organizationSettings.passwordlessSignInConfigured
-              ? "Email links expire after 15 minutes, work once, and preserve each user's assigned role and approved session window. Access-code sign-in remains available as a fallback."
-              : "Required Render values: PUBLIC_APP_URL, RESEND_API_KEY, and EMAIL_FROM. No email is attempted until all required provider values are present."}
+            CSV imports accept only approved surveillance fields, reject unsupported personal-identifier columns, screen duplicates, and audit both staging and publication.
           </Typography>
         </AdminPanel>
       </Box>
@@ -843,6 +854,14 @@ export default function AdminConsole() {
           />
         </AdminPanel>
       </Box>
+
+      {authUser?.canImport && (
+        <Box sx={{ mt: 2 }}>
+          <AdminPanel title="Case Import Staging" icon={<DriveFolderUploadIcon />}>
+            <CaseImportPanel authUser={authUser} onChanged={handleAdminDataChanged} />
+          </AdminPanel>
+        </Box>
+      )}
 
       <Box sx={{ mt: 2 }}>
         <AdminPanel title="Privacy & Retention" icon={<SecurityIcon />}>

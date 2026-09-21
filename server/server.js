@@ -24,6 +24,23 @@ const ADMIN_ROLES = ["Admin", "System Administrator"];
 const REVIEWER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Data Manager"];
 const REPORTER_ROLES = ["Admin", "System Administrator", "Epidemiology Reviewer", "Field Reporter", "Data Manager"];
 const DELETE_ROLES = ["Admin", "System Administrator"];
+const IMPORT_ROLES = ["Admin", "System Administrator", "Data Manager"];
+const IMPORT_ALLOWED_FIELDS = [
+  "external_id",
+  "disease",
+  "location",
+  "latitude",
+  "longitude",
+  "cases",
+  "report_date",
+  "age_group",
+  "sex",
+  "facility",
+  "report_source",
+  "notes",
+];
+const IMPORT_REQUIRED_FIELDS = ["disease", "location", "latitude", "longitude", "report_date"];
+const MAX_IMPORT_ROWS = 500;
 const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",
   defaultRegion: "Madison, WI",
@@ -69,6 +86,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+app.use("/api/admin/imports", express.json({ limit: "1mb" }));
 app.use(express.json({ limit: "10kb" }));
 
 const limiter = rateLimit({
@@ -201,6 +219,16 @@ function requireDeleteSession(req, res, next) {
   next();
 }
 
+function requireImportSession(req, res, next) {
+  const session = readSessionToken(req);
+  if (!session || !IMPORT_ROLES.includes(session.role)) {
+    return res.status(401).json({ error: "Administrator or Data Manager access is required to import cases." });
+  }
+
+  req.user = session;
+  next();
+}
+
 function buildSessionUser(session) {
   const role = session.role || "";
   return {
@@ -215,6 +243,7 @@ function buildSessionUser(session) {
     canReview: REVIEWER_ROLES.includes(role),
     canReport: REPORTER_ROLES.includes(role),
     canDelete: DELETE_ROLES.includes(role),
+    canImport: IMPORT_ROLES.includes(role),
     canView: Boolean(role),
   };
 }
@@ -290,6 +319,9 @@ const caseSchema = new mongoose.Schema(
     submittedByRole: { type: String, default: "", trim: true },
     submittedByFacility: { type: String, default: "", trim: true },
     submittedByJurisdiction: { type: String, default: "", trim: true },
+    importBatchId: { type: mongoose.Schema.Types.ObjectId, ref: "CaseImportBatch" },
+    externalRecordId: { type: String, default: "", trim: true },
+    importFingerprint: { type: String, trim: true },
     reviewHistory: [
       {
         reviewedAt: { type: Date, default: Date.now },
@@ -315,6 +347,7 @@ const caseSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+caseSchema.index({ importFingerprint: 1 }, { unique: true, sparse: true });
 const Case = mongoose.model("Case", caseSchema);
 
 const auditLogSchema = new mongoose.Schema(
@@ -385,6 +418,50 @@ const emailLoginLinkSchema = new mongoose.Schema(
   { timestamps: true }
 );
 const EmailLoginLink = mongoose.model("EmailLoginLink", emailLoginLinkSchema);
+
+const importRowSchema = new mongoose.Schema(
+  {
+    rowNumber: { type: Number, required: true },
+    externalId: { type: String, default: "", trim: true },
+    disease: { type: String, default: "", trim: true },
+    location: { type: String, default: "", trim: true },
+    lat: { type: Number },
+    lng: { type: Number },
+    cases: { type: Number, default: 1 },
+    date: { type: String, default: "" },
+    ageGroup: { type: String, default: "Unknown" },
+    sex: { type: String, default: "Unknown" },
+    facility: { type: String, default: "", trim: true },
+    reportSource: { type: String, default: "Imported report", trim: true },
+    notes: { type: String, default: "", trim: true },
+    fingerprint: { type: String, default: "", trim: true },
+    errors: [{ type: String, trim: true }],
+    duplicate: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const caseImportBatchSchema = new mongoose.Schema(
+  {
+    filename: { type: String, required: true, trim: true },
+    uploadedBy: { type: String, required: true, trim: true },
+    uploadedByEmail: { type: String, default: "", trim: true },
+    uploadedByRole: { type: String, required: true, trim: true },
+    status: { type: String, enum: ["Staged", "Publishing", "Imported", "Rejected"], default: "Staged" },
+    totalRows: { type: Number, required: true },
+    validRows: { type: Number, required: true },
+    invalidRows: { type: Number, required: true },
+    duplicateRows: { type: Number, required: true },
+    importedRows: { type: Number, default: 0 },
+    rows: [importRowSchema],
+    publishedAt: { type: Date },
+    publishedBy: { type: String, default: "", trim: true },
+    rejectedAt: { type: Date },
+    rejectedBy: { type: String, default: "", trim: true },
+  },
+  { timestamps: true }
+);
+const CaseImportBatch = mongoose.model("CaseImportBatch", caseImportBatchSchema);
 
 async function writeAuditLog(entry) {
   try {
@@ -561,6 +638,82 @@ function serializePublicCase(caseRecord) {
     locationVerification: caseRecord.locationVerification || "GPS verified",
     source: "live",
   };
+}
+
+function cleanImportText(value, maxLength = 300) {
+  return String(value ?? "").replace(/\0/g, "").trim().slice(0, maxLength);
+}
+
+function findCanonicalOption(value, options) {
+  const normalized = cleanImportText(value).toLowerCase();
+  return options.find((option) => option.toLowerCase() === normalized) || "";
+}
+
+function hasSpreadsheetFormula(value) {
+  return /^[=+@\t\r]/.test(cleanImportText(value));
+}
+
+function buildImportFingerprint(row) {
+  const identity = row.externalId
+    ? `external:${row.externalId.toLowerCase()}`
+    : [row.disease, row.location, row.lat, row.lng, row.cases, row.date]
+      .map((value) => String(value).trim().toLowerCase())
+      .join("|");
+  return crypto.createHash("sha256").update(identity).digest("hex");
+}
+
+function isValidIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function normalizeImportRow(rawRow, index, settings) {
+  const row = {
+    rowNumber: index + 2,
+    externalId: cleanImportText(rawRow.external_id, 100),
+    disease: findCanonicalOption(rawRow.disease, settings.diseaseList || []),
+    location: cleanImportText(rawRow.location, 200),
+    lat: Number(rawRow.latitude),
+    lng: Number(rawRow.longitude),
+    cases: rawRow.cases === "" || rawRow.cases === undefined ? 1 : Number(rawRow.cases),
+    date: cleanImportText(rawRow.report_date, 10),
+    ageGroup: cleanImportText(rawRow.age_group, 20) || "Unknown",
+    sex: cleanImportText(rawRow.sex, 20) || "Unknown",
+    facility: cleanImportText(rawRow.facility, 150),
+    reportSource: cleanImportText(rawRow.report_source, 150) || "Imported report",
+    notes: cleanImportText(rawRow.notes, 1000),
+    errors: [],
+    duplicate: false,
+  };
+
+  IMPORT_REQUIRED_FIELDS.forEach((field) => {
+    if (cleanImportText(rawRow[field]) === "") row.errors.push(`${field} is required`);
+  });
+  if (!row.disease) row.errors.push("disease is not in the organization disease list");
+  if (!Number.isFinite(row.lat) || row.lat < -90 || row.lat > 90) row.errors.push("latitude must be between -90 and 90");
+  if (!Number.isFinite(row.lng) || row.lng < -180 || row.lng > 180) row.errors.push("longitude must be between -180 and 180");
+  if (!Number.isInteger(row.cases) || row.cases < 1 || row.cases > 100000) row.errors.push("cases must be a whole number from 1 to 100000");
+  if (!isValidIsoDate(row.date)) {
+    row.errors.push("report_date must be a valid date using YYYY-MM-DD");
+  }
+  if (!AGE_GROUPS.includes(row.ageGroup)) row.errors.push(`age_group must be one of: ${AGE_GROUPS.join(", ")}`);
+  if (!SEX_OPTIONS.includes(row.sex)) row.errors.push(`sex must be one of: ${SEX_OPTIONS.join(", ")}`);
+  if (row.facility && !findCanonicalOption(row.facility, settings.facilityList || [])) {
+    row.errors.push("facility is not in the organization facility list");
+  } else if (row.facility) {
+    row.facility = findCanonicalOption(row.facility, settings.facilityList || []);
+  }
+
+  [row.externalId, row.disease, row.location, row.facility, row.reportSource, row.notes].forEach((value) => {
+    if (hasSpreadsheetFormula(value)) row.errors.push("text values cannot begin with spreadsheet formula characters");
+  });
+  row.errors = [...new Set(row.errors)];
+  row.fingerprint = row.errors.length === 0 ? buildImportFingerprint(row) : "";
+  return row;
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -885,6 +1038,205 @@ app.post(
     }
   }
 );
+
+app.get("/api/admin/imports", requireImportSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const batches = await CaseImportBatch.find().select("-rows").sort({ createdAt: -1 }).limit(12);
+    res.json(batches);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Unable to load import batches." });
+  }
+});
+
+app.post("/api/admin/imports/preview", requireImportSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  const filename = cleanImportText(req.body.filename, 160);
+  const rows = req.body.rows;
+  if (!filename.toLowerCase().endsWith(".csv")) {
+    return res.status(400).json({ error: "Only CSV files are supported." });
+  }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: "The CSV file does not contain any data rows." });
+  }
+  if (rows.length > MAX_IMPORT_ROWS) {
+    return res.status(400).json({ error: `A single import can contain at most ${MAX_IMPORT_ROWS} rows.` });
+  }
+
+  const suppliedFields = new Set(rows.flatMap((row) => Object.keys(row || {})));
+  const unsupportedFields = [...suppliedFields].filter((field) => field && !IMPORT_ALLOWED_FIELDS.includes(field));
+  if (unsupportedFields.length > 0) {
+    return res.status(400).json({
+      error: `Unsupported columns: ${unsupportedFields.join(", ")}. Use the approved CSV template; personal identifiers are not accepted.`,
+    });
+  }
+
+  try {
+    const settings = await getOrganizationSettings();
+    const normalizedRows = rows.map((row, index) => normalizeImportRow(row || {}, index, settings));
+    const candidateFingerprints = normalizedRows.filter((row) => row.fingerprint).map((row) => row.fingerprint);
+    const existingCases = candidateFingerprints.length > 0
+      ? await Case.find({ importFingerprint: { $in: candidateFingerprints } }).select("importFingerprint").lean()
+      : [];
+    const existingFingerprints = new Set(existingCases.map((item) => item.importFingerprint));
+    const seenFingerprints = new Set();
+
+    normalizedRows.forEach((row) => {
+      if (!row.fingerprint) return;
+      row.duplicate = existingFingerprints.has(row.fingerprint) || seenFingerprints.has(row.fingerprint);
+      seenFingerprints.add(row.fingerprint);
+    });
+
+    const validRows = normalizedRows.filter((row) => row.errors.length === 0 && !row.duplicate).length;
+    const invalidRows = normalizedRows.filter((row) => row.errors.length > 0).length;
+    const duplicateRows = normalizedRows.filter((row) => row.duplicate).length;
+    const batch = await CaseImportBatch.create({
+      filename,
+      uploadedBy: req.user.name || "Importer",
+      uploadedByEmail: req.user.email || "",
+      uploadedByRole: req.user.role || "",
+      totalRows: normalizedRows.length,
+      validRows,
+      invalidRows,
+      duplicateRows,
+      rows: normalizedRows,
+    });
+
+    writeAuditLog({
+      action: "case_import_staged",
+      actor: req.user.name || "Importer",
+      role: req.user.role || "",
+      changedFields: ["importBatch"],
+      metadata: { batchId: batch.id, filename, totalRows: batch.totalRows, validRows, invalidRows, duplicateRows },
+    });
+    res.status(201).json(batch);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Unable to stage this CSV import." });
+  }
+});
+
+app.post("/api/admin/imports/:id/publish", requireImportSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid import batch." });
+  }
+
+  const batch = await CaseImportBatch.findOneAndUpdate(
+    { _id: req.params.id, status: "Staged" },
+    { $set: { status: "Publishing" } },
+    { new: true }
+  );
+  if (!batch) {
+    return res.status(409).json({ error: "This import batch is no longer available for publishing." });
+  }
+
+  const publishableRows = batch.rows.filter((row) => row.errors.length === 0 && !row.duplicate && row.fingerprint);
+  if (publishableRows.length === 0) {
+    batch.status = "Staged";
+    await batch.save();
+    return res.status(400).json({ error: "This batch has no valid, non-duplicate rows to publish." });
+  }
+
+  try {
+    const operations = publishableRows.map((row) => ({
+      updateOne: {
+        filter: { importFingerprint: row.fingerprint },
+        update: {
+          $setOnInsert: {
+            disease: row.disease,
+            location: row.location,
+            lat: row.lat,
+            lng: row.lng,
+            enteredLocation: row.location,
+            locationSource: "Imported report",
+            locationVerification: "Needs location review",
+            locationReviewReason: "Imported coordinates require authorized verification before confirmation.",
+            cases: row.cases,
+            date: row.date,
+            status: "New",
+            priority: "Medium",
+            ageGroup: row.ageGroup,
+            sex: row.sex,
+            facility: row.facility,
+            reportSource: row.reportSource,
+            notes: row.notes,
+            submittedBy: req.user.name || "Institutional importer",
+            submittedByEmail: req.user.email || "",
+            submittedByRole: req.user.role || "",
+            submittedByFacility: req.user.facility || "",
+            submittedByJurisdiction: req.user.jurisdiction || "",
+            importBatchId: batch._id,
+            externalRecordId: row.externalId,
+            importFingerprint: row.fingerprint,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    const result = await Case.bulkWrite(operations, { ordered: false });
+    const importedRows = result.upsertedCount || 0;
+    batch.status = "Imported";
+    batch.importedRows = importedRows;
+    batch.publishedAt = new Date();
+    batch.publishedBy = req.user.name || "Importer";
+    await batch.save();
+
+    writeAuditLog({
+      action: "case_import_published",
+      actor: req.user.name || "Importer",
+      role: req.user.role || "",
+      changedFields: ["importBatch", "cases"],
+      metadata: { batchId: batch.id, filename: batch.filename, requestedRows: publishableRows.length, importedRows },
+    });
+    res.json(batch);
+  } catch (err) {
+    batch.status = "Staged";
+    await batch.save().catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: "Unable to publish this import batch." });
+  }
+});
+
+app.post("/api/admin/imports/:id/reject", requireImportSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid import batch." });
+  }
+
+  try {
+    const batch = await CaseImportBatch.findOneAndUpdate(
+      { _id: req.params.id, status: "Staged" },
+      { $set: { status: "Rejected", rejectedAt: new Date(), rejectedBy: req.user.name || "Importer" } },
+      { new: true }
+    );
+    if (!batch) {
+      return res.status(409).json({ error: "This import batch is no longer available for rejection." });
+    }
+    writeAuditLog({
+      action: "case_import_rejected",
+      actor: req.user.name || "Importer",
+      role: req.user.role || "",
+      changedFields: ["importBatch"],
+      metadata: { batchId: batch.id, filename: batch.filename, totalRows: batch.totalRows },
+    });
+    res.json(batch);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Unable to reject this import batch." });
+  }
+});
 
 app.get("/api/admin/audit-logs", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
