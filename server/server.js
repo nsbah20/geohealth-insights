@@ -8,6 +8,8 @@ const mongoose = require("mongoose");
 const crypto = require("crypto");
 
 const app = express();
+// Render terminates public traffic at its proxy before forwarding it here.
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:3000";
 const allowedOrigins = CLIENT_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
