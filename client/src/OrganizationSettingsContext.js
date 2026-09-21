@@ -14,6 +14,8 @@ export const DEFAULT_ORGANIZATION_SETTINGS = {
   diseaseList: ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"],
   facilityList: ["Hospital", "Clinic", "Laboratory", "School health office", "Community reporting line"],
   reportSourceList: ["Field report", "Clinic report", "Hospital report", "Laboratory report", "Community report", "School report", "Facility report", "Self report"],
+  emailDeliveryConfigured: false,
+  emailProvider: "Manual copy",
 };
 
 const OrganizationSettingsContext = createContext({

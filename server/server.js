@@ -42,6 +42,14 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE;
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.MONGODB_URI || "geohealth-dev-session-secret";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.EMAIL_FROM || "";
+const PUBLIC_APP_URL = (
+  process.env.PUBLIC_APP_URL
+  || allowedOrigins.find((origin) => origin.startsWith("https://"))
+  || allowedOrigins[0]
+  || "http://localhost:3000"
+).replace(/\/$/, "");
 mongoose.set("bufferCommands", false);
 
 // ── Security middleware ──────────────────────────────────────────────────────
@@ -342,8 +350,10 @@ const organizationUserSchema = new mongoose.Schema(
     accessCodeHash: { type: String, required: true, select: false },
     accessCodeUpdatedAt: { type: Date },
     invitedAt: { type: Date },
+    inviteDeliveryMethod: { type: String, enum: ["manual", "email"], default: "manual" },
     resetRequestedAt: { type: Date },
     resetHandoffAt: { type: Date },
+    resetHandoffDeliveryMethod: { type: String, enum: ["manual", "email"], default: "manual" },
     lastLoginAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0, min: 0 },
     lockedUntil: { type: Date },
@@ -368,6 +378,114 @@ async function getOrganizationSettings() {
     settings = await OrganizationSettings.create(DEFAULT_ORGANIZATION_SETTINGS);
   }
   return settings;
+}
+
+function isEmailDeliveryConfigured() {
+  return Boolean(RESEND_API_KEY && EMAIL_FROM);
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatSessionWindow(hours) {
+  const value = normalizeSessionDurationHours(hours);
+  return `${value} ${value === 1 ? "hour" : "hours"}`;
+}
+
+function buildStaffEmail({ user, settings, kind }) {
+  const signInUrl = `${PUBLIC_APP_URL}/admin`;
+  const organizationName = settings.organizationName || DEFAULT_ORGANIZATION_SETTINGS.organizationName;
+  const isReset = kind === "reset";
+  const subject = isReset
+    ? `${organizationName} access reset notice`
+    : `Your ${organizationName} staff access`;
+  const introduction = isReset
+    ? `Your ${organizationName} access has been reset by an administrator.`
+    : `You have been added to ${organizationName} as ${user.role}.`;
+  const codeLine = isReset
+    ? "Your new access code will be provided separately by your administrator."
+    : "Your access code will be provided separately by your administrator.";
+  const details = [
+    `Sign-in type: Organization user`,
+    `Email: ${user.email}`,
+    `Approved session window: ${formatSessionWindow(user.sessionDurationHours)}`,
+    `Jurisdiction: ${user.jurisdiction || settings.defaultRegion}`,
+    user.facility ? `Facility: ${user.facility}` : "",
+  ].filter(Boolean);
+  const text = [
+    `Hello ${user.fullName},`,
+    "",
+    introduction,
+    `Sign in here: ${signInUrl}`,
+    "",
+    ...details,
+    codeLine,
+    "",
+    "For security, do not share your access code.",
+  ].join("\n");
+  const detailRows = details.map((detail) => `<li style="margin:0 0 8px;">${escapeHtml(detail)}</li>`).join("");
+  const html = `
+    <div style="margin:0;background:#eef4f2;padding:32px 16px;font-family:Arial,sans-serif;color:#102a2c;">
+      <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #dbe7e4;border-radius:8px;overflow:hidden;">
+        <div style="background:#083b3b;padding:24px 28px;color:#ffffff;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#99f6e4;">Secure staff access</div>
+          <h1 style="margin:8px 0 0;font-size:24px;line-height:1.2;">${escapeHtml(organizationName)}</h1>
+        </div>
+        <div style="padding:28px;">
+          <p style="margin:0 0 16px;">Hello ${escapeHtml(user.fullName)},</p>
+          <p style="margin:0 0 20px;line-height:1.6;">${escapeHtml(introduction)}</p>
+          <a href="${escapeHtml(signInUrl)}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:6px;">Open secure sign-in</a>
+          <ul style="margin:24px 0 20px;padding-left:20px;line-height:1.5;">${detailRows}</ul>
+          <p style="margin:0 0 12px;padding:12px;background:#fff7ed;border-left:4px solid #f59e0b;line-height:1.5;">${escapeHtml(codeLine)}</p>
+          <p style="margin:0;color:#64748b;font-size:13px;line-height:1.5;">For security, do not share your access code.</p>
+        </div>
+      </div>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+async function sendTransactionalEmail({ to, subject, text, html, idempotencyKey }) {
+  if (!isEmailDeliveryConfigured()) {
+    return { status: "manual", provider: null };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [to],
+        subject,
+        text,
+        html,
+      }),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || `Email provider returned ${response.status}`);
+    }
+    return { status: "sent", provider: "resend", messageId: payload.id || "" };
+  } catch (err) {
+    err.code = "EMAIL_DELIVERY_FAILED";
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function serializePublicCase(caseRecord) {
@@ -817,24 +935,42 @@ app.post("/api/admin/users/:id/invite", requireAdminSession, async (req, res) =>
       return res.status(404).json({ error: "Organization user not found" });
     }
 
+    const settings = await getOrganizationSettings();
+    const email = buildStaffEmail({ user, settings, kind: "invite" });
+    const delivery = req.body.delivery === "manual"
+      ? { status: "manual", provider: null }
+      : await sendTransactionalEmail({
+        to: user.email,
+        ...email,
+        idempotencyKey: `staff-invite/${user.id}/${user.updatedAt.getTime()}`,
+      });
     user.invitedAt = new Date();
+    user.inviteDeliveryMethod = delivery.status === "sent" ? "email" : "manual";
     const updatedUser = await user.save();
 
     writeAuditLog({
-      action: "organization_user_invite_prepared",
+      action: delivery.status === "sent" ? "organization_user_invite_sent" : "organization_user_invite_prepared",
       actor: req.user.name || "Admin",
       role: req.user.role || "Admin",
-      changedFields: ["invitedAt"],
+      changedFields: ["invitedAt", "inviteDeliveryMethod"],
       metadata: {
         userEmail: updatedUser.email,
         userRole: updatedUser.role,
         userStatus: updatedUser.status,
+        deliveryMethod: updatedUser.inviteDeliveryMethod,
+        provider: delivery.provider || "manual",
       },
     });
 
-    res.json(updatedUser);
+    res.json({
+      ...updatedUser.toObject(),
+      notification: { status: delivery.status, provider: delivery.provider },
+    });
   } catch (err) {
     console.error(err);
+    if (err.code === "EMAIL_DELIVERY_FAILED") {
+      return res.status(502).json({ error: "Email delivery failed. A manual invite can still be copied.", manualFallbackAllowed: true });
+    }
     res.status(500).json({ error: "Failed to prepare user invite" });
   }
 });
@@ -854,24 +990,42 @@ app.post("/api/admin/users/:id/reset-handoff", requireAdminSession, async (req, 
       return res.status(404).json({ error: "Organization user not found" });
     }
 
+    const settings = await getOrganizationSettings();
+    const email = buildStaffEmail({ user, settings, kind: "reset" });
+    const delivery = req.body.delivery === "manual"
+      ? { status: "manual", provider: null }
+      : await sendTransactionalEmail({
+        to: user.email,
+        ...email,
+        idempotencyKey: `staff-reset/${user.id}/${user.accessCodeUpdatedAt?.getTime() || user.updatedAt.getTime()}`,
+      });
     user.resetHandoffAt = new Date();
+    user.resetHandoffDeliveryMethod = delivery.status === "sent" ? "email" : "manual";
     const updatedUser = await user.save();
 
     writeAuditLog({
-      action: "organization_user_reset_handoff_prepared",
+      action: delivery.status === "sent" ? "organization_user_reset_notice_sent" : "organization_user_reset_handoff_prepared",
       actor: req.user.name || "Admin",
       role: req.user.role || "Admin",
-      changedFields: ["resetHandoffAt"],
+      changedFields: ["resetHandoffAt", "resetHandoffDeliveryMethod"],
       metadata: {
         userEmail: updatedUser.email,
         userRole: updatedUser.role,
         userStatus: updatedUser.status,
+        deliveryMethod: updatedUser.resetHandoffDeliveryMethod,
+        provider: delivery.provider || "manual",
       },
     });
 
-    res.json(updatedUser);
+    res.json({
+      ...updatedUser.toObject(),
+      notification: { status: delivery.status, provider: delivery.provider },
+    });
   } catch (err) {
     console.error(err);
+    if (err.code === "EMAIL_DELIVERY_FAILED") {
+      return res.status(502).json({ error: "Email delivery failed. A manual reset notice can still be copied.", manualFallbackAllowed: true });
+    }
     res.status(500).json({ error: "Failed to prepare reset handoff" });
   }
 });
@@ -894,6 +1048,8 @@ app.get("/api/settings", async (req, res) => {
       diseaseList: settings.diseaseList,
       facilityList: settings.facilityList,
       reportSourceList: settings.reportSourceList,
+      emailDeliveryConfigured: isEmailDeliveryConfigured(),
+      emailProvider: isEmailDeliveryConfigured() ? "Resend" : "Manual copy",
     });
   } catch (err) {
     console.error(err);

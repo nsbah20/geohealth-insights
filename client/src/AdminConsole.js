@@ -82,6 +82,7 @@ const baseReadinessItems = [
   { label: "Access reset requests", state: "Active", tone: "success" },
   { label: "Reset handoff tracking", state: "Active", tone: "success" },
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
+  { label: "Transactional email delivery", state: "Needs setup", tone: "warning" },
 ];
 
 const governanceItems = [
@@ -136,8 +137,10 @@ function formatAction(action) {
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";
   if (action === "organization_user_invite_prepared") return "User invite prepared";
+  if (action === "organization_user_invite_sent") return "User invite emailed";
   if (action === "organization_user_reset_requested") return "Access reset requested";
   if (action === "organization_user_reset_handoff_prepared") return "Reset handoff prepared";
+  if (action === "organization_user_reset_notice_sent") return "Reset notice emailed";
   return String(action || "Activity").replace(/_/g, " ");
 }
 
@@ -368,12 +371,16 @@ export default function AdminConsole() {
   }, [authUser]);
 
   const readinessItems = useMemo(
-    () => baseReadinessItems.map((item) => (
-      item.label === "Admin access gate" && !authUser
-        ? { ...item, state: "Configured", tone: "info" }
-        : item
-    )),
-    [authUser]
+    () => baseReadinessItems.map((item) => {
+      if (item.label === "Admin access gate" && !authUser) {
+        return { ...item, state: "Configured", tone: "info" };
+      }
+      if (item.label === "Transactional email delivery" && organizationSettings.emailDeliveryConfigured) {
+        return { ...item, state: "Active", tone: "success" };
+      }
+      return item;
+    }),
+    [authUser, organizationSettings.emailDeliveryConfigured]
   );
 
   const readinessScore = useMemo(() => {
@@ -757,7 +764,9 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {organizationSettings.organizationName} now supports role-based access, per-user session windows, admin-reviewed user activity, invite handoff tracking, and access reset handoffs. Next we can add provider-sent reset emails and single sign-on for production institutions.
+            {organizationSettings.emailDeliveryConfigured
+              ? `${organizationSettings.organizationName} can now send staff invite and reset notices through ${organizationSettings.emailProvider}. Access codes remain on a separate secure channel. Next we can add institutional single sign-on.`
+              : `${organizationSettings.organizationName} is ready for provider-sent staff invite and reset notices. Configure the email provider environment values to activate delivery; manual copy remains available until then.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -772,7 +781,9 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            Current sign-in uses email and assigned access codes. Admins can copy invite and reset handoff messages now; provider-sent emails, passwords, and SSO can replace those codes later.
+            {organizationSettings.emailDeliveryConfigured
+              ? "Email notices never contain access codes. Administrators must provide each code separately through an approved secure channel."
+              : "Required Render values: PUBLIC_APP_URL, RESEND_API_KEY, and EMAIL_FROM. No email is attempted until all required provider values are present."}
           </Typography>
         </AdminPanel>
       </Box>

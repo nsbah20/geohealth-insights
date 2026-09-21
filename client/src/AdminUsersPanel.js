@@ -24,6 +24,7 @@ import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ToggleOffIcon from "@mui/icons-material/ToggleOff";
 import ToggleOnIcon from "@mui/icons-material/ToggleOn";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
@@ -102,6 +103,14 @@ function buildResetHandoffMessage(user, settings) {
     "",
     "For security, do not share your access code.",
   ].join("\n");
+}
+
+async function copyHandoffMessage(message, promptTitle) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(message);
+    return;
+  }
+  window.prompt(promptTitle, message);
 }
 
 export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged }) {
@@ -279,22 +288,41 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     const inviteMessage = buildInviteMessage(user, settings);
 
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(inviteMessage);
-      } else {
-        window.prompt("Copy this invite message", inviteMessage);
-      }
-
       const res = await axios.post(`${API_URL}/api/admin/users/${user._id}/invite`, {}, { headers: authHeaders(token) });
-      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
-      setMessage({ type: "success", text: `Invite message copied for ${user.fullName}. Share the access code separately.` });
+      const { notification, ...updatedUser } = res.data;
+      setUsers((current) => current.map((item) => (item._id === user._id ? updatedUser : item)));
+      if (notification?.status === "sent") {
+        setMessage({ type: "success", text: `Invite emailed to ${user.email}. Share the access code separately through a secure channel.` });
+      } else {
+        await copyHandoffMessage(inviteMessage, "Copy this invite message");
+        setMessage({ type: "success", text: `Email delivery is not configured, so the invite was copied for ${user.fullName}. Share the access code separately.` });
+      }
       onChanged?.();
     } catch (err) {
       if (err.response?.status === 401) {
         clearAdminToken();
         onUnauthorized?.();
       }
-      const text = err.response?.data?.error || "Unable to prepare this invite. Browser clipboard permission may be required.";
+      if (err.response?.status === 502 && err.response?.data?.manualFallbackAllowed) {
+        try {
+          const fallback = await axios.post(
+            `${API_URL}/api/admin/users/${user._id}/invite`,
+            { delivery: "manual" },
+            { headers: authHeaders(token) }
+          );
+          const updatedUser = { ...fallback.data };
+          delete updatedUser.notification;
+          setUsers((current) => current.map((item) => (item._id === user._id ? updatedUser : item)));
+          await copyHandoffMessage(inviteMessage, "Copy this invite message");
+          setMessage({ type: "warning", text: `Email delivery failed, so the invite was copied for ${user.fullName}. Share the access code separately.` });
+          onChanged?.();
+          return;
+        } catch (fallbackError) {
+          setMessage({ type: "error", text: fallbackError.response?.data?.error || "Email and manual invite delivery both failed." });
+          return;
+        }
+      }
+      const text = err.response?.data?.error || "Unable to deliver this invite.";
       setMessage({ type: "error", text });
     }
   };
@@ -306,22 +334,41 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
     const resetMessage = buildResetHandoffMessage(user, settings);
 
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(resetMessage);
-      } else {
-        window.prompt("Copy this reset message", resetMessage);
-      }
-
       const res = await axios.post(`${API_URL}/api/admin/users/${user._id}/reset-handoff`, {}, { headers: authHeaders(token) });
-      setUsers((current) => current.map((item) => (item._id === user._id ? res.data : item)));
-      setMessage({ type: "success", text: `Reset handoff message copied for ${user.fullName}. Share the new access code separately.` });
+      const { notification, ...updatedUser } = res.data;
+      setUsers((current) => current.map((item) => (item._id === user._id ? updatedUser : item)));
+      if (notification?.status === "sent") {
+        setMessage({ type: "success", text: `Reset notice emailed to ${user.email}. Share the new access code separately through a secure channel.` });
+      } else {
+        await copyHandoffMessage(resetMessage, "Copy this reset message");
+        setMessage({ type: "success", text: `Email delivery is not configured, so the reset notice was copied for ${user.fullName}. Share the new access code separately.` });
+      }
       onChanged?.();
     } catch (err) {
       if (err.response?.status === 401) {
         clearAdminToken();
         onUnauthorized?.();
       }
-      const text = err.response?.data?.error || "Unable to prepare this reset handoff. Browser clipboard permission may be required.";
+      if (err.response?.status === 502 && err.response?.data?.manualFallbackAllowed) {
+        try {
+          const fallback = await axios.post(
+            `${API_URL}/api/admin/users/${user._id}/reset-handoff`,
+            { delivery: "manual" },
+            { headers: authHeaders(token) }
+          );
+          const updatedUser = { ...fallback.data };
+          delete updatedUser.notification;
+          setUsers((current) => current.map((item) => (item._id === user._id ? updatedUser : item)));
+          await copyHandoffMessage(resetMessage, "Copy this reset message");
+          setMessage({ type: "warning", text: `Email delivery failed, so the reset notice was copied for ${user.fullName}. Share the new access code separately.` });
+          onChanged?.();
+          return;
+        } catch (fallbackError) {
+          setMessage({ type: "error", text: fallbackError.response?.data?.error || "Email and manual reset delivery both failed." });
+          return;
+        }
+      }
+      const text = err.response?.data?.error || "Unable to deliver this reset notice.";
       setMessage({ type: "error", text });
     }
   };
@@ -435,7 +482,19 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                   <TableCell>{formatSessionWindow(user.sessionDurationHours)}</TableCell>
                   <TableCell>{formatDateTime(user.lastLoginAt)}</TableCell>
                   <TableCell>{formatDateTime(user.accessCodeUpdatedAt)}</TableCell>
-                  <TableCell>{formatDateTime(user.invitedAt)}</TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {formatDateTime(user.invitedAt)}
+                    </Typography>
+                    {user.invitedAt && (
+                      <Chip
+                        label={user.inviteDeliveryMethod === "email" ? "Emailed" : "Copied"}
+                        size="small"
+                        color={user.inviteDeliveryMethod === "email" ? "success" : "default"}
+                        sx={{ mt: 0.5, fontWeight: 800 }}
+                      />
+                    )}
+                  </TableCell>
                   <TableCell>
                     {user.resetRequestedAt ? (
                       <Box>
@@ -444,9 +503,17 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                           {formatDateTime(user.resetRequestedAt)}
                         </Typography>
                         {user.resetHandoffAt && (
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            Handoff {formatDateTime(user.resetHandoffAt)}
-                          </Typography>
+                          <Stack direction="row" spacing={0.7} alignItems="center" sx={{ mt: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Handoff {formatDateTime(user.resetHandoffAt)}
+                            </Typography>
+                            <Chip
+                              label={user.resetHandoffDeliveryMethod === "email" ? "Emailed" : "Copied"}
+                              size="small"
+                              color={user.resetHandoffDeliveryMethod === "email" ? "success" : "default"}
+                              sx={{ fontWeight: 800 }}
+                            />
+                          </Stack>
                         )}
                       </Box>
                     ) : (
@@ -488,11 +555,11 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                       <Button
                         size="small"
                         variant="outlined"
-                        startIcon={<ContentCopyIcon />}
+                        startIcon={settings.emailDeliveryConfigured ? <EmailOutlinedIcon /> : <ContentCopyIcon />}
                         onClick={() => prepareInvite(user)}
                         sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
                       >
-                        Invite
+                        {settings.emailDeliveryConfigured ? "Send Invite" : "Copy Invite"}
                       </Button>
                       <Button
                         size="small"
@@ -515,11 +582,11 @@ export default function AdminUsersPanel({ authUser, onUnauthorized, onChanged })
                       <Button
                         size="small"
                         variant="outlined"
-                        startIcon={<ContentCopyIcon />}
+                        startIcon={settings.emailDeliveryConfigured ? <EmailOutlinedIcon /> : <ContentCopyIcon />}
                         onClick={() => prepareResetHandoff(user)}
                         sx={{ fontWeight: 800, whiteSpace: "nowrap" }}
                       >
-                        Reset Info
+                        {settings.emailDeliveryConfigured ? "Send Reset" : "Copy Reset"}
                       </Button>
                       <Button
                         size="small"

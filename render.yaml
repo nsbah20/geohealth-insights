@@ -15,6 +15,12 @@ services:
         sync: false   # Set this in the Render dashboard
       - key: CLIENT_ORIGIN
         sync: false   # Set to your Render static site URL, e.g. https://geohealth-insights.onrender.com
+      - key: PUBLIC_APP_URL
+        sync: false   # Public frontend URL used in staff invite and reset emails
+      - key: RESEND_API_KEY
+        sync: false   # Resend API key for transactional staff notifications
+      - key: EMAIL_FROM
+        sync: false   # Verified sender, e.g. GeoHealth Insights <notifications@example.org>
 
   # ── Frontend (React Static Site) ─────────────────────────────────────────
   - type: web
