@@ -31,6 +31,7 @@ import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
 import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import {
   authHeaders,
   clearAdminToken,
@@ -45,6 +46,7 @@ import OrganizationSettingsPanel from "./OrganizationSettingsPanel";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 import AdminUsersPanel from "./AdminUsersPanel";
 import CaseImportPanel from "./CaseImportPanel";
+import RetentionEnforcementPanel from "./RetentionEnforcementPanel";
 import surveillanceOperationsBackground from "./assets/surveillance-operations-background.webp";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
@@ -90,6 +92,7 @@ const baseReadinessItems = [
   { label: "Access reset requests", state: "Active", tone: "success" },
   { label: "Reset handoff tracking", state: "Active", tone: "success" },
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
+  { label: "Retention enforcement and disposal evidence", state: "Active", tone: "success" },
   { label: "Transactional email delivery", state: "Needs setup", tone: "warning" },
   { label: "Passwordless email sign-in", state: "Needs setup", tone: "warning" },
   { label: "Controlled CSV import staging", state: "Active", tone: "success" },
@@ -148,6 +151,8 @@ function formatAction(action) {
   if (action === "case_import_staged") return "Case import staged";
   if (action === "case_import_published") return "Case import published";
   if (action === "case_import_rejected") return "Case import rejected";
+  if (action === "retention_preview_created") return "Retention preview created";
+  if (action === "retention_disposal_executed") return "Retention disposal executed";
   if (action === "organization_settings_updated") return "Organization settings updated";
   if (action === "organization_user_created") return "Organization user created";
   if (action === "organization_user_updated") return "Organization user updated";
@@ -825,7 +830,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {`${organizationSettings.organizationName} now supports controlled CSV staging for approved institutional case data. Next we can enforce automated retention schedules and disposal evidence.`}
+            {`${organizationSettings.organizationName} now supports preview-first retention enforcement with audited disposal evidence. Next we can add database backup verification and recovery testing.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -840,7 +845,7 @@ export default function AdminConsole() {
             </Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
-            CSV imports accept only approved surveillance fields, reject unsupported personal-identifier columns, screen duplicates, and audit both staging and publication.
+            Retention disposal is limited to Closed or Rejected records beyond the configured policy window, requires typed administrator confirmation, and preserves hashed evidence.
           </Typography>
         </AdminPanel>
       </Box>
@@ -942,6 +947,14 @@ export default function AdminConsole() {
           </Box>
         </AdminPanel>
       </Box>
+
+      {canAdmin && (
+        <Box sx={{ mt: 2 }}>
+          <AdminPanel title="Retention Enforcement" icon={<DeleteSweepIcon />}>
+            <RetentionEnforcementPanel authUser={authUser} onChanged={handleAdminDataChanged} />
+          </AdminPanel>
+        </Box>
+      )}
 
       <Box
         sx={{

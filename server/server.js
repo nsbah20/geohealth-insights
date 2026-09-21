@@ -41,6 +41,8 @@ const IMPORT_ALLOWED_FIELDS = [
 ];
 const IMPORT_REQUIRED_FIELDS = ["disease", "location", "latitude", "longitude", "report_date"];
 const MAX_IMPORT_ROWS = 500;
+const RETENTION_BATCH_LIMIT = 500;
+const RETENTION_PREVIEW_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",
   defaultRegion: "Madison, WI",
@@ -463,6 +465,27 @@ const caseImportBatchSchema = new mongoose.Schema(
 );
 const CaseImportBatch = mongoose.model("CaseImportBatch", caseImportBatchSchema);
 
+const retentionRunSchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: ["Previewed", "Executing", "Executed", "Expired"], default: "Previewed" },
+    policyDays: { type: Number, required: true },
+    cutoffDate: { type: Date, required: true },
+    eligibleCount: { type: Number, required: true },
+    plannedCount: { type: Number, required: true },
+    deletedCount: { type: Number, default: 0 },
+    statusBreakdown: { type: Object, default: {} },
+    targetCaseIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Case" }],
+    targetHashes: [{ type: String, trim: true }],
+    previewedBy: { type: String, required: true, trim: true },
+    previewedByRole: { type: String, required: true, trim: true },
+    expiresAt: { type: Date, required: true },
+    executedAt: { type: Date },
+    executedBy: { type: String, default: "", trim: true },
+  },
+  { timestamps: true }
+);
+const RetentionRun = mongoose.model("RetentionRun", retentionRunSchema);
+
 async function writeAuditLog(entry) {
   try {
     await AuditLog.create(entry);
@@ -660,6 +683,38 @@ function buildImportFingerprint(row) {
       .map((value) => String(value).trim().toLowerCase())
       .join("|");
   return crypto.createHash("sha256").update(identity).digest("hex");
+}
+
+function buildRetentionCaseHash(caseId) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(`retention:${caseId}`).digest("hex");
+}
+
+function buildRetentionFilter(cutoffDate, caseIds) {
+  const filter = {
+    status: { $in: ["Closed", "Rejected"] },
+    updatedAt: { $lt: cutoffDate },
+  };
+  if (caseIds) filter._id = { $in: caseIds };
+  return filter;
+}
+
+function serializeRetentionRun(run) {
+  return {
+    _id: run._id,
+    status: run.status,
+    policyDays: run.policyDays,
+    cutoffDate: run.cutoffDate,
+    eligibleCount: run.eligibleCount,
+    plannedCount: run.plannedCount,
+    deferredCount: Math.max(0, run.eligibleCount - run.plannedCount),
+    deletedCount: run.deletedCount,
+    statusBreakdown: run.statusBreakdown || {},
+    previewedBy: run.previewedBy,
+    expiresAt: run.expiresAt,
+    executedAt: run.executedAt,
+    executedBy: run.executedBy,
+    createdAt: run.createdAt,
+  };
 }
 
 function isValidIsoDate(value) {
@@ -1271,6 +1326,163 @@ app.post("/api/admin/imports/:id/reject", requireImportSession, async (req, res)
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Unable to reject this import batch." });
+  }
+});
+
+app.get("/api/admin/retention/runs", requireAdminSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    await RetentionRun.updateMany(
+      { status: "Previewed", expiresAt: { $lte: new Date() } },
+      { $set: { status: "Expired" } }
+    );
+    const runs = await RetentionRun.find().sort({ createdAt: -1 }).limit(10);
+    res.json(runs.map(serializeRetentionRun));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Unable to load retention history." });
+  }
+});
+
+app.post("/api/admin/retention/preview", requireAdminSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const settings = await getOrganizationSettings();
+    const policyDays = Number(settings.retentionDays) || DEFAULT_ORGANIZATION_SETTINGS.retentionDays;
+    const cutoffDate = new Date(Date.now() - policyDays * 24 * 60 * 60 * 1000);
+    const filter = buildRetentionFilter(cutoffDate);
+    const [eligibleCount, targets] = await Promise.all([
+      Case.countDocuments(filter),
+      Case.find(filter)
+        .select("disease location status date updatedAt")
+        .sort({ updatedAt: 1 })
+        .limit(RETENTION_BATCH_LIMIT)
+        .lean(),
+    ]);
+    const statusBreakdown = targets.reduce((summary, item) => {
+      summary[item.status] = (summary[item.status] || 0) + 1;
+      return summary;
+    }, {});
+    const expiresAt = new Date(Date.now() + RETENTION_PREVIEW_TTL_MS);
+    const run = await RetentionRun.create({
+      policyDays,
+      cutoffDate,
+      eligibleCount,
+      plannedCount: targets.length,
+      statusBreakdown,
+      targetCaseIds: targets.map((item) => item._id),
+      targetHashes: targets.map((item) => buildRetentionCaseHash(item._id)),
+      previewedBy: req.user.name || "Administrator",
+      previewedByRole: req.user.role || "Administrator",
+      expiresAt,
+    });
+
+    writeAuditLog({
+      action: "retention_preview_created",
+      actor: req.user.name || "Administrator",
+      role: req.user.role || "Administrator",
+      changedFields: ["retentionPreview"],
+      metadata: {
+        retentionRunId: run.id,
+        policyDays,
+        cutoffDate,
+        eligibleCount,
+        plannedCount: targets.length,
+      },
+    });
+
+    res.status(201).json({
+      ...serializeRetentionRun(run),
+      sample: targets.slice(0, 10).map((item) => ({
+        _id: item._id,
+        disease: item.disease,
+        location: item.location,
+        status: item.status,
+        reportDate: item.date,
+        lastUpdated: item.updatedAt,
+      })),
+      confirmationText: `DELETE ${targets.length} RECORDS`,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Unable to create a retention preview." });
+  }
+});
+
+app.post("/api/admin/retention/:id/execute", requireAdminSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid retention preview." });
+  }
+
+  let run;
+  try {
+    run = await RetentionRun.findById(req.params.id);
+    if (!run || run.status !== "Previewed") {
+      return res.status(409).json({ error: "This retention preview is no longer available." });
+    }
+    if (run.expiresAt <= new Date()) {
+      run.status = "Expired";
+      await run.save();
+      return res.status(409).json({ error: "This retention preview expired. Create a fresh preview." });
+    }
+    if (run.plannedCount === 0) {
+      return res.status(400).json({ error: "There are no eligible records to dispose." });
+    }
+
+    const expectedConfirmation = `DELETE ${run.plannedCount} RECORDS`;
+    if (cleanImportText(req.body.confirmation, 80) !== expectedConfirmation) {
+      return res.status(400).json({ error: `Type ${expectedConfirmation} to confirm this disposal.` });
+    }
+
+    const claimedRun = await RetentionRun.findOneAndUpdate(
+      { _id: run._id, status: "Previewed", expiresAt: { $gt: new Date() } },
+      { $set: { status: "Executing" } },
+      { new: true }
+    );
+    if (!claimedRun) {
+      return res.status(409).json({ error: "This retention preview is already being processed." });
+    }
+    run = claimedRun;
+
+    const result = await Case.deleteMany(buildRetentionFilter(run.cutoffDate, run.targetCaseIds));
+    run.status = "Executed";
+    run.deletedCount = result.deletedCount || 0;
+    run.executedAt = new Date();
+    run.executedBy = req.user.name || "Administrator";
+    await run.save();
+
+    writeAuditLog({
+      action: "retention_disposal_executed",
+      actor: req.user.name || "Administrator",
+      role: req.user.role || "Administrator",
+      changedFields: ["retentionDisposal", "cases"],
+      metadata: {
+        retentionRunId: run.id,
+        policyDays: run.policyDays,
+        cutoffDate: run.cutoffDate,
+        plannedCount: run.plannedCount,
+        deletedCount: run.deletedCount,
+        targetHashes: run.targetHashes,
+      },
+    });
+
+    res.json(serializeRetentionRun(run));
+  } catch (err) {
+    if (run?.status === "Executing") {
+      run.status = "Previewed";
+      await run.save().catch(() => {});
+    }
+    console.error(err);
+    res.status(500).json({ error: "Unable to execute this retention disposal." });
   }
 });
 
