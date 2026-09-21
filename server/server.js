@@ -671,7 +671,43 @@ function isValidIsoDate(value) {
     && parsed.getUTCDate() === day;
 }
 
+function normalizeImportDate(value) {
+  const cleaned = cleanImportText(value, 30);
+  if (isValidIsoDate(cleaned)) return cleaned;
+
+  const localized = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!localized) return "";
+
+  const first = Number(localized[1]);
+  const second = Number(localized[2]);
+  const year = Number(localized[3]);
+  if (first <= 12 && second <= 12) return "";
+
+  const day = first > 12 ? first : second;
+  const month = first > 12 ? second : first;
+  const normalized = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isValidIsoDate(normalized) ? normalized : "";
+}
+
+function normalizeImportAgeGroup(value) {
+  const cleaned = cleanImportText(value, 30);
+  const canonical = findCanonicalOption(cleaned, AGE_GROUPS);
+  if (canonical) return canonical;
+
+  const rangeMatch = cleaned.toLowerCase().match(/^(0|5|18|50)\s*(?:to|through|-)\s*(4|17|49|64)$/);
+  if (rangeMatch) {
+    const candidate = `${rangeMatch[1]}-${rangeMatch[2]}`;
+    if (AGE_GROUPS.includes(candidate)) return candidate;
+  }
+
+  if (/^(?:may[-/ ]?17|17[-/ ]?may|5\/17(?:\/\d{2,4})?|17\/5(?:\/\d{2,4})?)$/i.test(cleaned)) {
+    return "5-17";
+  }
+  return cleaned;
+}
+
 function normalizeImportRow(rawRow, index, settings) {
+  const normalizedDate = normalizeImportDate(rawRow.report_date);
   const row = {
     rowNumber: index + 2,
     externalId: cleanImportText(rawRow.external_id, 100),
@@ -680,8 +716,8 @@ function normalizeImportRow(rawRow, index, settings) {
     lat: Number(rawRow.latitude),
     lng: Number(rawRow.longitude),
     cases: rawRow.cases === "" || rawRow.cases === undefined ? 1 : Number(rawRow.cases),
-    date: cleanImportText(rawRow.report_date, 10),
-    ageGroup: cleanImportText(rawRow.age_group, 20) || "Unknown",
+    date: normalizedDate || cleanImportText(rawRow.report_date, 30),
+    ageGroup: normalizeImportAgeGroup(rawRow.age_group) || "Unknown",
     sex: cleanImportText(rawRow.sex, 20) || "Unknown",
     facility: cleanImportText(rawRow.facility, 150),
     reportSource: cleanImportText(rawRow.report_source, 150) || "Imported report",
@@ -697,8 +733,8 @@ function normalizeImportRow(rawRow, index, settings) {
   if (!Number.isFinite(row.lat) || row.lat < -90 || row.lat > 90) row.errors.push("latitude must be between -90 and 90");
   if (!Number.isFinite(row.lng) || row.lng < -180 || row.lng > 180) row.errors.push("longitude must be between -180 and 180");
   if (!Number.isInteger(row.cases) || row.cases < 1 || row.cases > 100000) row.errors.push("cases must be a whole number from 1 to 100000");
-  if (!isValidIsoDate(row.date)) {
-    row.errors.push("report_date must be a valid date using YYYY-MM-DD");
+  if (!normalizedDate) {
+    row.errors.push("report_date must use YYYY-MM-DD; unambiguous DD/MM/YYYY or MM/DD/YYYY is also accepted");
   }
   if (!AGE_GROUPS.includes(row.ageGroup)) row.errors.push(`age_group must be one of: ${AGE_GROUPS.join(", ")}`);
   if (!SEX_OPTIONS.includes(row.sex)) row.errors.push(`sex must be one of: ${SEX_OPTIONS.join(", ")}`);

@@ -1,0 +1,11 @@
+external_id,disease,location,latitude,longitude,cases,report_date,age_group,sex,facility,report_source,notes
+TEST-IMPORT-20260921-001,Influenza,"Madison, WI",43.0731,-89.4012,2,2026-09-21,18 to 49,Unknown,Clinic,Clinic report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-002,Measles,"Milwaukee, WI",43.0389,-87.9065,1,2026-09-21,5 to 17,Unknown,Hospital,Hospital report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-003,COVID-19,"Chicago, IL",41.8781,-87.6298,3,2026-09-20,50 to 64,Female,Hospital,Hospital report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-004,Norovirus,"Minneapolis, MN",44.9778,-93.2650,4,2026-09-20,18 to 49,Male,Laboratory,Laboratory report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-005,Malaria,"Lagos, Nigeria",6.5244,3.3792,2,2026-09-19,18 to 49,Female,Clinic,Clinic report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-006,Cholera,"Banjul, The Gambia",13.4549,-16.5790,5,2026-09-19,5 to 17,Male,Community reporting line,Community report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-007,Dengue,"Accra, Ghana",5.6037,-0.1870,3,2026-09-18,18 to 49,Other,Hospital,Hospital report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-008,Influenza,"Columbus, OH",39.9612,-82.9988,2,2026-09-18,65+,Female,School health office,School report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-009,COVID-19,"New York, NY",40.7128,-74.0060,6,2026-09-17,50 to 64,Male,Laboratory,Laboratory report,TEST RECORD - reject after validating the staging workflow
+TEST-IMPORT-20260921-010,Measles,"Dakar, Senegal",14.7167,-17.4677,1,2026-09-17,0 to 4,Unknown,Community reporting line,Community report,TEST RECORD - reject after validating the staging workflow
