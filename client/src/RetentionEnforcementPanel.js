@@ -166,6 +166,12 @@ export default function RetentionEnforcementPanel({ authUser, onChanged }) {
             <Chip label={`${preview.statusBreakdown?.Rejected || 0} rejected`} />
           </Stack>
 
+          {preview.recoveryReadiness && !preview.recoveryReadiness.retentionDisposalAllowed && (
+            <Alert severity="error" sx={{ mb: 1.5 }}>
+              Disposal is blocked until a backup from the last {preview.recoveryReadiness.backupMaxAgeDays} days is verified and a restore test from the last {preview.recoveryReadiness.restoreTestMaxAgeDays} days has passed.
+            </Alert>
+          )}
+
           {preview.sample?.length > 0 && (
             <TableContainer sx={{ border: "1px solid rgba(15, 23, 42, 0.1)", maxHeight: 320 }}>
               <Table size="small" stickyHeader>
@@ -208,7 +214,7 @@ export default function RetentionEnforcementPanel({ authUser, onChanged }) {
                   color="error"
                   startIcon={<DeleteSweepIcon />}
                   onClick={executeDisposal}
-                  disabled={loading || !confirmationMatches}
+                  disabled={loading || !confirmationMatches || !preview.recoveryReadiness?.retentionDisposalAllowed}
                   sx={{ fontWeight: 900 }}
                 >
                   Dispose Previewed Records

@@ -43,6 +43,8 @@ const IMPORT_REQUIRED_FIELDS = ["disease", "location", "latitude", "longitude", 
 const MAX_IMPORT_ROWS = 500;
 const RETENTION_BATCH_LIMIT = 500;
 const RETENTION_PREVIEW_TTL_MS = 15 * 60 * 1000;
+const BACKUP_MAX_AGE_DAYS = 7;
+const RESTORE_TEST_MAX_AGE_DAYS = 90;
 const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",
   defaultRegion: "Madison, WI",
@@ -486,6 +488,35 @@ const retentionRunSchema = new mongoose.Schema(
 );
 const RetentionRun = mongoose.model("RetentionRun", retentionRunSchema);
 
+const backupVerificationSchema = new mongoose.Schema(
+  {
+    provider: { type: String, required: true, trim: true, maxlength: 100 },
+    reference: { type: String, required: true, trim: true, maxlength: 200 },
+    completedAt: { type: Date, required: true },
+    status: { type: String, enum: ["Verified", "Failed"], required: true },
+    notes: { type: String, default: "", trim: true, maxlength: 1000 },
+    verifiedBy: { type: String, required: true, trim: true },
+    verifiedByRole: { type: String, required: true, trim: true },
+  },
+  { timestamps: true }
+);
+backupVerificationSchema.index({ completedAt: -1 });
+const BackupVerification = mongoose.model("BackupVerification", backupVerificationSchema);
+
+const restoreTestSchema = new mongoose.Schema(
+  {
+    backupVerificationId: { type: mongoose.Schema.Types.ObjectId, ref: "BackupVerification", required: true },
+    outcome: { type: String, enum: ["Passed", "Failed"], required: true },
+    testedAt: { type: Date, required: true },
+    notes: { type: String, required: true, trim: true, maxlength: 1000 },
+    testedBy: { type: String, required: true, trim: true },
+    testedByRole: { type: String, required: true, trim: true },
+  },
+  { timestamps: true }
+);
+restoreTestSchema.index({ testedAt: -1 });
+const RestoreTest = mongoose.model("RestoreTest", restoreTestSchema);
+
 async function writeAuditLog(entry) {
   try {
     await AuditLog.create(entry);
@@ -714,6 +745,54 @@ function serializeRetentionRun(run) {
     executedAt: run.executedAt,
     executedBy: run.executedBy,
     createdAt: run.createdAt,
+  };
+}
+
+async function getRecoveryReadiness() {
+  const [latestBackup, latestRestoreTest] = await Promise.all([
+    BackupVerification.findOne({ status: "Verified" }).sort({ completedAt: -1 }).lean(),
+    RestoreTest.findOne({ outcome: "Passed" }).sort({ testedAt: -1 }).lean(),
+  ]);
+  const backupCutoff = new Date(Date.now() - BACKUP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+  const restoreCutoff = new Date(Date.now() - RESTORE_TEST_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+  const backupCurrent = Boolean(latestBackup && latestBackup.completedAt >= backupCutoff);
+  const restoreTestCurrent = Boolean(latestRestoreTest && latestRestoreTest.testedAt >= restoreCutoff);
+
+  return {
+    backupCurrent,
+    restoreTestCurrent,
+    retentionDisposalAllowed: backupCurrent && restoreTestCurrent,
+    backupMaxAgeDays: BACKUP_MAX_AGE_DAYS,
+    restoreTestMaxAgeDays: RESTORE_TEST_MAX_AGE_DAYS,
+    latestBackup,
+    latestRestoreTest,
+  };
+}
+
+function serializeBackupVerification(record) {
+  if (!record) return null;
+  return {
+    _id: record._id,
+    provider: record.provider,
+    reference: record.reference,
+    completedAt: record.completedAt,
+    status: record.status,
+    notes: record.notes,
+    verifiedBy: record.verifiedBy,
+    createdAt: record.createdAt,
+  };
+}
+
+function serializeRestoreTest(record) {
+  if (!record) return null;
+  return {
+    _id: record._id,
+    backupVerificationId: record.backupVerificationId,
+    outcome: record.outcome,
+    testedAt: record.testedAt,
+    notes: record.notes,
+    testedBy: record.testedBy,
+    createdAt: record.createdAt,
   };
 }
 
@@ -1329,6 +1408,144 @@ app.post("/api/admin/imports/:id/reject", requireImportSession, async (req, res)
   }
 });
 
+app.get("/api/admin/recovery/status", requireAdminSession, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "Database is not connected" });
+  }
+
+  try {
+    const [readiness, backupHistory, restoreHistory] = await Promise.all([
+      getRecoveryReadiness(),
+      BackupVerification.find().sort({ completedAt: -1 }).limit(8).lean(),
+      RestoreTest.find().sort({ testedAt: -1 }).limit(8).lean(),
+    ]);
+    res.json({
+      backupCurrent: readiness.backupCurrent,
+      restoreTestCurrent: readiness.restoreTestCurrent,
+      retentionDisposalAllowed: readiness.retentionDisposalAllowed,
+      backupMaxAgeDays: readiness.backupMaxAgeDays,
+      restoreTestMaxAgeDays: readiness.restoreTestMaxAgeDays,
+      latestBackup: serializeBackupVerification(readiness.latestBackup),
+      latestRestoreTest: serializeRestoreTest(readiness.latestRestoreTest),
+      backupHistory: backupHistory.map(serializeBackupVerification),
+      restoreHistory: restoreHistory.map(serializeRestoreTest),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Unable to load backup and recovery status." });
+  }
+});
+
+app.post(
+  "/api/admin/recovery/backups",
+  requireAdminSession,
+  [
+    body("provider").trim().notEmpty().isLength({ max: 100 }).withMessage("Backup provider is required."),
+    body("reference").trim().notEmpty().isLength({ max: 200 }).withMessage("Backup reference is required."),
+    body("completedAt").isISO8601().withMessage("Backup completion time must be valid."),
+    body("status").isIn(["Verified", "Failed"]).withMessage("Backup status is invalid."),
+    body("notes").optional().trim().isLength({ max: 1000 }).withMessage("Backup notes are too long."),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const completedAt = new Date(req.body.completedAt);
+    if (completedAt > new Date(Date.now() + 5 * 60 * 1000)) {
+      return res.status(400).json({ error: "Backup completion time cannot be in the future." });
+    }
+
+    try {
+      const verification = await BackupVerification.create({
+        provider: req.body.provider,
+        reference: req.body.reference,
+        completedAt,
+        status: req.body.status,
+        notes: req.body.notes || "",
+        verifiedBy: req.user.name || "Administrator",
+        verifiedByRole: req.user.role || "Administrator",
+      });
+      writeAuditLog({
+        action: "backup_verification_recorded",
+        actor: req.user.name || "Administrator",
+        role: req.user.role || "Administrator",
+        changedFields: ["backupVerification"],
+        metadata: {
+          backupVerificationId: verification.id,
+          provider: verification.provider,
+          completedAt: verification.completedAt,
+          status: verification.status,
+        },
+      });
+      res.status(201).json(serializeBackupVerification(verification));
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Unable to record backup evidence." });
+    }
+  }
+);
+
+app.post(
+  "/api/admin/recovery/restore-tests",
+  requireAdminSession,
+  [
+    body("backupVerificationId").isMongoId().withMessage("Choose a valid backup verification."),
+    body("outcome").isIn(["Passed", "Failed"]).withMessage("Restore test outcome is invalid."),
+    body("testedAt").isISO8601().withMessage("Restore test time must be valid."),
+    body("notes").trim().notEmpty().isLength({ max: 1000 }).withMessage("Document the restore test procedure and result."),
+  ],
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "Database is not connected" });
+    }
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const testedAt = new Date(req.body.testedAt);
+    if (testedAt > new Date(Date.now() + 5 * 60 * 1000)) {
+      return res.status(400).json({ error: "Restore test time cannot be in the future." });
+    }
+
+    try {
+      const backup = await BackupVerification.findById(req.body.backupVerificationId);
+      if (!backup || backup.status !== "Verified") {
+        return res.status(400).json({ error: "Restore tests must reference verified backup evidence." });
+      }
+      const restoreTest = await RestoreTest.create({
+        backupVerificationId: backup._id,
+        outcome: req.body.outcome,
+        testedAt,
+        notes: req.body.notes,
+        testedBy: req.user.name || "Administrator",
+        testedByRole: req.user.role || "Administrator",
+      });
+      writeAuditLog({
+        action: "restore_test_recorded",
+        actor: req.user.name || "Administrator",
+        role: req.user.role || "Administrator",
+        changedFields: ["restoreTest"],
+        metadata: {
+          restoreTestId: restoreTest.id,
+          backupVerificationId: backup.id,
+          testedAt: restoreTest.testedAt,
+          outcome: restoreTest.outcome,
+        },
+      });
+      res.status(201).json(serializeRestoreTest(restoreTest));
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Unable to record the restore test." });
+    }
+  }
+);
+
 app.get("/api/admin/retention/runs", requireAdminSession, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "Database is not connected" });
@@ -1397,6 +1614,7 @@ app.post("/api/admin/retention/preview", requireAdminSession, async (req, res) =
       },
     });
 
+    const recoveryReadiness = await getRecoveryReadiness();
     res.status(201).json({
       ...serializeRetentionRun(run),
       sample: targets.slice(0, 10).map((item) => ({
@@ -1408,6 +1626,13 @@ app.post("/api/admin/retention/preview", requireAdminSession, async (req, res) =
         lastUpdated: item.updatedAt,
       })),
       confirmationText: `DELETE ${targets.length} RECORDS`,
+      recoveryReadiness: {
+        backupCurrent: recoveryReadiness.backupCurrent,
+        restoreTestCurrent: recoveryReadiness.restoreTestCurrent,
+        retentionDisposalAllowed: recoveryReadiness.retentionDisposalAllowed,
+        backupMaxAgeDays: recoveryReadiness.backupMaxAgeDays,
+        restoreTestMaxAgeDays: recoveryReadiness.restoreTestMaxAgeDays,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -1436,6 +1661,13 @@ app.post("/api/admin/retention/:id/execute", requireAdminSession, async (req, re
     }
     if (run.plannedCount === 0) {
       return res.status(400).json({ error: "There are no eligible records to dispose." });
+    }
+
+    const recoveryReadiness = await getRecoveryReadiness();
+    if (!recoveryReadiness.retentionDisposalAllowed) {
+      return res.status(409).json({
+        error: `Retention disposal requires a verified backup from the last ${BACKUP_MAX_AGE_DAYS} days and a passed restore test from the last ${RESTORE_TEST_MAX_AGE_DAYS} days.`,
+      });
     }
 
     const expectedConfirmation = `DELETE ${run.plannedCount} RECORDS`;
