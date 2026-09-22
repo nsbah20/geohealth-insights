@@ -33,6 +33,7 @@ import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import BackupIcon from "@mui/icons-material/Backup";
+import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import {
   authHeaders,
   clearAdminToken,
@@ -49,6 +50,7 @@ import AdminUsersPanel from "./AdminUsersPanel";
 import CaseImportPanel from "./CaseImportPanel";
 import RetentionEnforcementPanel from "./RetentionEnforcementPanel";
 import BackupRecoveryPanel from "./BackupRecoveryPanel";
+import OperationalStatusPanel from "./OperationalStatusPanel";
 import surveillanceOperationsBackground from "./assets/surveillance-operations-background.webp";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
@@ -96,6 +98,7 @@ const baseReadinessItems = [
   { label: "Privacy and retention summary", state: "Active", tone: "success" },
   { label: "Retention enforcement and disposal evidence", state: "Active", tone: "success" },
   { label: "Backup and recovery evidence", state: "Active", tone: "success" },
+  { label: "Operational readiness monitoring", state: "Active", tone: "success" },
   { label: "Transactional email delivery", state: "Needs setup", tone: "warning" },
   { label: "Passwordless email sign-in", state: "Needs setup", tone: "warning" },
   { label: "Controlled CSV import staging", state: "Active", tone: "success" },
@@ -271,7 +274,7 @@ export default function AdminConsole() {
     let active = true;
 
     Promise.all([
-      axios.get(`${API_URL}/api/ping`),
+      axios.get(`${API_URL}/api/health/ready`),
       axios.get(`${API_URL}/api/health-data`),
     ])
       .then(([, casesResponse]) => {
@@ -742,6 +745,14 @@ export default function AdminConsole() {
         />
       </Box>
 
+      {canAdmin && (
+        <Box sx={{ mb: 2 }}>
+          <AdminPanel title="Production Operations" icon={<MonitorHeartIcon />}>
+            <OperationalStatusPanel authUser={authUser} />
+          </AdminPanel>
+        </Box>
+      )}
+
       <Box
         sx={{
           display: "grid",
@@ -835,7 +846,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {`${organizationSettings.organizationName} now tracks verified backup evidence and restore drills, and blocks retention disposal when recovery evidence is stale. Next we can address dependency security and production monitoring.`}
+            {`${organizationSettings.organizationName} now separates API liveness from database readiness and provides protected operational checks. Next we can modernize the client build toolchain to reduce inherited dependency advisories.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>

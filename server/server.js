@@ -2476,7 +2476,61 @@ app.delete("/api/cases/:id", requireDeleteSession, async (req, res) => {
   }
 });
 
-// ── Health check ─────────────────────────────────────────────────────────────
+// ── Health checks ────────────────────────────────────────────────────────────
+async function checkDatabaseReadiness() {
+  if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+    return { status: "unavailable", latencyMs: null };
+  }
+
+  const startedAt = Date.now();
+  try {
+    await mongoose.connection.db.admin().ping();
+    return { status: "ready", latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    console.error("Database readiness check failed:", err.message);
+    return { status: "unavailable", latencyMs: null };
+  }
+}
+
+app.get("/api/health/live", (req, res) => {
+  res.json({ status: "live", checkedAt: new Date().toISOString() });
+});
+
+app.get("/api/health/ready", async (req, res) => {
+  const database = await checkDatabaseReadiness();
+  const ready = database.status === "ready";
+  res.status(ready ? 200 : 503).json({
+    status: ready ? "ready" : "degraded",
+    checkedAt: new Date().toISOString(),
+    checks: {
+      api: { status: "ready" },
+      database,
+    },
+  });
+});
+
+app.get("/api/admin/operations/status", requireAdminSession, async (req, res) => {
+  const database = await checkDatabaseReadiness();
+  const ready = database.status === "ready";
+  res.status(ready ? 200 : 503).json({
+    status: ready ? "Operational" : "Degraded",
+    checkedAt: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    runtime: {
+      environment: process.env.NODE_ENV || "development",
+      nodeVersion: process.version,
+    },
+    database,
+    configuration: {
+      adminAccessCode: Boolean(ADMIN_ACCESS_CODE),
+      dedicatedSessionSecret: Boolean(process.env.SESSION_SECRET),
+      transactionalEmail: Boolean(RESEND_API_KEY && EMAIL_FROM),
+      allowedClientOrigins: allowedOrigins.length,
+    },
+  });
+});
+
+// Kept for existing deployment checks and older clients.
 app.get("/api/ping", (req, res) => res.json({ status: "ok" }));
 
 // ── Start ─────────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ services:
     rootDir: server
     buildCommand: npm ci
     startCommand: npm start
+    healthCheckPath: /api/health/ready
     envVars:
       - key: NODE_ENV
         value: production
@@ -21,6 +22,8 @@ services:
         sync: false   # Resend API key for transactional staff notifications
       - key: EMAIL_FROM
         sync: false   # Verified sender, e.g. GeoHealth Insights <notifications@example.org>
+      - key: SESSION_SECRET
+        generateValue: true
 
   # ── Frontend (React Static Site) ─────────────────────────────────────────
   - type: web
