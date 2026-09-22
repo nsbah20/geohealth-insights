@@ -33,9 +33,9 @@ import demoData from "./demoData";
 import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpiringSoon, isSessionExpired } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
-const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
-const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.REACT_APP_MAPBOX_TOKEN;
+const SHOW_DEMO_BY_DEFAULT = import.meta.env.DEV;
 
 const PRIORITY_COLORS = {
   High: "error",

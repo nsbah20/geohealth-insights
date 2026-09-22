@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 
 export const DEFAULT_ORGANIZATION_SETTINGS = {
   organizationName: "GeoHealth Insights",

@@ -42,11 +42,11 @@ import demoData from "./demoData";
 import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpiringSoon, isSessionExpired } from "./auth";
 import { OrganizationSettingsProvider, useOrganizationSettings } from "./OrganizationSettingsContext";
 
-mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.REACT_APP_MAPBOX_TOKEN;
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 const DRAWER_WIDTH = 360;
-const SHOW_DEMO_BY_DEFAULT = process.env.NODE_ENV !== "production";
+const SHOW_DEMO_BY_DEFAULT = import.meta.env.DEV;
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
 const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
@@ -765,7 +765,7 @@ function MapView() {
       });
 
       mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
-      if (process.env.NODE_ENV === "development") {
+      if (import.meta.env.DEV) {
         window.geoHealthMap = mapRef.current;
       }
       mapRef.current.once("load", () => {
@@ -780,7 +780,7 @@ function MapView() {
         mapRef.current.remove();
         mapRef.current = null;
       }
-      if (process.env.NODE_ENV === "development") {
+      if (import.meta.env.DEV) {
         delete window.geoHealthMap;
       }
     };

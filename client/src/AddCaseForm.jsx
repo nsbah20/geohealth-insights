@@ -14,7 +14,7 @@ import {
 import AddLocationAltIcon from "@mui/icons-material/AddLocationAlt";
 import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpiringSoon, isSessionExpired } from "./auth";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 const DISEASE_OPTIONS = ["COVID-19", "Influenza", "Measles", "Norovirus", "Malaria", "Cholera", "Dengue"];
 const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];

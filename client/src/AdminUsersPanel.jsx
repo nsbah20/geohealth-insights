@@ -28,7 +28,7 @@ import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import { authHeaders, clearAdminToken, getAdminToken } from "./auth";
 import { useOrganizationSettings } from "./OrganizationSettingsContext";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 const USER_ROLES = ["System Administrator", "Epidemiology Reviewer", "Field Reporter", "Institution Viewer", "Data Manager"];
 const MIN_SESSION_DURATION_HOURS = 1;
 const MAX_SESSION_DURATION_HOURS = 24;

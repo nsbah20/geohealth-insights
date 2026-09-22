@@ -23,7 +23,7 @@ import PublishIcon from "@mui/icons-material/Publish";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { authHeaders, getAdminToken } from "./auth";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_ROWS = 500;
 const TEMPLATE_HEADERS = [

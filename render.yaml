@@ -37,7 +37,7 @@ services:
         source: /*
         destination: /index.html
     envVars:
-      - key: REACT_APP_MAPBOX_TOKEN
+      - key: VITE_MAPBOX_TOKEN
         sync: false   # Set this in the Render dashboard
-      - key: REACT_APP_API_URL
+      - key: VITE_API_URL
         sync: false   # Set to your geohealth-api URL, e.g. https://geohealth-api.onrender.com

@@ -1,9 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import CaseImportPanel from "./CaseImportPanel";
 
-jest.mock("axios", () => ({
-  get: jest.fn(() => Promise.resolve({ data: [] })),
-  post: jest.fn(),
+vi.mock("axios", () => ({
+  default: {
+    get: vi.fn(() => Promise.resolve({ data: [] })),
+    post: vi.fn(),
+  },
 }));
 
 test("keeps case imports hidden behind an approved role", () => {

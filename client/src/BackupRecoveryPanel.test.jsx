@@ -1,10 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
 import BackupRecoveryPanel from "./BackupRecoveryPanel";
 
-jest.mock("axios", () => ({
+vi.mock("axios", () => ({
   __esModule: true,
   default: {
-    get: jest.fn(() => Promise.resolve({
+    get: vi.fn(() => Promise.resolve({
       data: {
         backupCurrent: false,
         restoreTestCurrent: false,
@@ -15,7 +15,7 @@ jest.mock("axios", () => ({
         restoreHistory: [],
       },
     })),
-    post: jest.fn(),
+    post: vi.fn(),
   },
 }));
 

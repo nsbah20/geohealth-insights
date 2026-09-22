@@ -9,6 +9,7 @@ node_modules/
 
 # Build output
 client/build/
+client/dist/
 
 # Logs
 npm-debug.log*

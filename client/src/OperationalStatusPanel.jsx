@@ -12,7 +12,7 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { authHeaders, getAdminToken } from "./auth";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 const REFRESH_INTERVAL_MS = 60 * 1000;
 
 function formatUptime(seconds) {

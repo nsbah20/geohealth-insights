@@ -53,7 +53,7 @@ import BackupRecoveryPanel from "./BackupRecoveryPanel";
 import OperationalStatusPanel from "./OperationalStatusPanel";
 import surveillanceOperationsBackground from "./assets/surveillance-operations-background.webp";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const rolePlan = [
   {
@@ -99,6 +99,7 @@ const baseReadinessItems = [
   { label: "Retention enforcement and disposal evidence", state: "Active", tone: "success" },
   { label: "Backup and recovery evidence", state: "Active", tone: "success" },
   { label: "Operational readiness monitoring", state: "Active", tone: "success" },
+  { label: "Vite production build pipeline", state: "Active", tone: "success" },
   { label: "Transactional email delivery", state: "Needs setup", tone: "warning" },
   { label: "Passwordless email sign-in", state: "Needs setup", tone: "warning" },
   { label: "Controlled CSV import staging", state: "Active", tone: "success" },
@@ -846,7 +847,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {`${organizationSettings.organizationName} now separates API liveness from database readiness and provides protected operational checks. Next we can modernize the client build toolchain to reduce inherited dependency advisories.`}
+            {`${organizationSettings.organizationName} now uses a maintained Vite build and Vitest test pipeline with a substantially smaller dependency tree. Next we can split the map and administration bundles and add deployment smoke tests.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>

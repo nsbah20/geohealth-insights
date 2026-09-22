@@ -1,9 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import RetentionEnforcementPanel from "./RetentionEnforcementPanel";
 
-jest.mock("axios", () => ({
-  get: jest.fn(() => Promise.resolve({ data: [] })),
-  post: jest.fn(),
+vi.mock("axios", () => ({
+  default: {
+    get: vi.fn(() => Promise.resolve({ data: [] })),
+    post: vi.fn(),
+  },
 }));
 
 test("hides retention controls from non-administrators", () => {
