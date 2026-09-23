@@ -10,6 +10,8 @@ node_modules/
 # Build output
 client/build/
 client/dist/
+client/playwright-report/
+client/test-results/
 
 # Logs
 npm-debug.log*

@@ -847,7 +847,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {`${organizationSettings.organizationName} now loads the case registry and administration workspace on demand, and Render verifies the production artifact before publishing it. Next we can add browser-level end-to-end checks for the highest-risk staff workflows.`}
+            {`${organizationSettings.organizationName} now verifies public navigation, protected registry access, and staff sign-in controls in a real browser on every code change. Next we can add a dedicated test environment for authenticated case submission and review workflows.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>

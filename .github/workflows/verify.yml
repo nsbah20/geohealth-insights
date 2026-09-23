@@ -36,6 +36,14 @@ jobs:
           VITE_API_URL: https://api.example.invalid
           VITE_MAPBOX_TOKEN: pk.test
 
+      - name: Install Chromium for browser tests
+        run: npx playwright install --with-deps chromium
+        working-directory: client
+
+      - name: Run browser workflow tests
+        run: npm run test:e2e
+        working-directory: client
+
       - name: Install server dependencies
         run: npm ci
         working-directory: server
