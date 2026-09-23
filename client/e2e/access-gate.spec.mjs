@@ -36,6 +36,24 @@ async function mockPublicApi(page) {
       return;
     }
 
+    if (pathname === "/api/auth/user-login") {
+      await route.fulfill({
+        json: {
+          token: "browser-test-token",
+          user: {
+            name: "Test Field Reporter",
+            role: "Field Reporter",
+            canAdmin: false,
+            canView: true,
+            canReview: false,
+            canImport: false,
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          },
+        },
+      });
+      return;
+    }
+
     await route.fulfill({ status: 404, json: { error: "Not available in browser tests." } });
   });
 }
@@ -88,4 +106,30 @@ test("organization-user mode requests email and access code", async ({ page }) =
   await email.fill("browser-test@example.org");
   await accessCode.fill("not-a-real-code");
   await expect(signIn).toBeEnabled();
+});
+
+test("non-admin users receive a focused staff workspace", async ({ page }) => {
+  await page.goto("/admin");
+
+  await page.getByLabel("Sign In Type").click();
+  await page.getByRole("option", { name: "Organization user" }).click();
+  await page.getByLabel("Email").fill("browser-test@example.org");
+  await page.getByLabel("User Access Code").fill("not-a-real-code");
+  await page.getByRole("button", { name: "Sign In" }).click();
+
+  await expect(page.getByRole("heading", { name: "Staff Workspace" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Dashboard" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Cases" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign Out" })).toBeVisible();
+
+  for (const restrictedPanel of [
+    "GeoHealth Insights Admin Console",
+    "Organization Users",
+    "Organization Settings",
+    "Audit Logs",
+    "Production Readiness",
+    "Backup & Recovery Readiness",
+  ]) {
+    await expect(page.getByText(restrictedPanel, { exact: true })).toHaveCount(0);
+  }
 });

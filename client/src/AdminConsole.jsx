@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { Link } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -34,6 +35,8 @@ import DriveFolderUploadIcon from "@mui/icons-material/DriveFolderUpload";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import BackupIcon from "@mui/icons-material/Backup";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
+import PublicIcon from "@mui/icons-material/Public";
+import TableChartIcon from "@mui/icons-material/TableChart";
 import {
   authHeaders,
   clearAdminToken,
@@ -681,6 +684,85 @@ export default function AdminConsole() {
             </Box>
           </Box>
         </Card>
+      </Box>
+    );
+  }
+
+  if (!canAdmin) {
+    return (
+      <Box sx={{ minHeight: "calc(100vh - 72px)", bgcolor: "#eef4f2", px: { xs: 2, md: 3 }, py: { xs: 4, md: 7 } }}>
+        <Box sx={{ width: "100%", maxWidth: 920, mx: "auto" }}>
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2} sx={{ mb: 3 }}>
+            <Box>
+              <Typography variant="overline" color="#0f766e" fontWeight={900}>
+                Protected staff session
+              </Typography>
+              <Typography component="h1" variant="h4" fontWeight={900} color="#102a2c">
+                Staff Workspace
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Open the surveillance tools assigned to your organization role.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <StatusPill label={`API ${apiHealth.status}`} color={apiHealth.color} />
+              <StatusPill label={authUser.role} color="success" />
+            </Stack>
+          </Stack>
+
+          {authMessage && (
+            <Alert severity={authMessage.type} sx={{ mb: 2 }}>
+              {authMessage.text}
+            </Alert>
+          )}
+
+          <Card elevation={0} sx={{ borderRadius: 2, border: "1px solid rgba(15, 23, 42, 0.08)", boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)" }}>
+            <CardContent sx={{ p: { xs: 2.5, sm: 4 }, "&:last-child": { pb: { xs: 2.5, sm: 4 } } }}>
+              <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={3}>
+                <Box>
+                  <Typography variant="h6" fontWeight={900} color="#102a2c">
+                    {authUser.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Role: {authUser.role}. Your session is limited to approved surveillance workflows.
+                  </Typography>
+                  <Typography variant="caption" color={sessionExpiringSoon ? "warning.main" : "text.secondary"} display="block" sx={{ mt: 1, fontWeight: 700 }}>
+                    Session active until {formatSessionExpiry(authUser)}{sessionTimeRemaining ? ` · ${sessionTimeRemaining} remaining` : ""}
+                  </Typography>
+                  {sessionExpiringSoon && (
+                    <Alert severity="warning" sx={{ mt: 1.5 }}>
+                      Your session is almost up. Sign out and sign back in if you need more time.
+                    </Alert>
+                  )}
+                </Box>
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<LogoutIcon />}
+                  onClick={handleLogout}
+                  sx={{ fontWeight: 900, alignSelf: { xs: "flex-start", md: "center" } }}
+                >
+                  Sign Out
+                </Button>
+              </Stack>
+
+              <Divider sx={{ my: 3 }} />
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                <Button component={Link} to="/" variant="contained" startIcon={<PublicIcon />} sx={{ bgcolor: "#0f766e", fontWeight: 900, "&:hover": { bgcolor: "#115e59" } }}>
+                  Open Dashboard
+                </Button>
+                <Button component={Link} to="/cases" variant="outlined" startIcon={<TableChartIcon />} sx={{ fontWeight: 900 }}>
+                  Open Cases
+                </Button>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            Administrative settings, organization users, audit logs, production operations, imports, backups, and retention controls are available only to administrators.
+          </Alert>
+        </Box>
       </Box>
     );
   }
