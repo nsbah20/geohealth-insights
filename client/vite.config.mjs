@@ -8,6 +8,8 @@ export default defineConfig({
   build: {
     // Preserve the existing Render static publish directory during migration.
     outDir: "build",
+    // The smoke test uses this manifest to verify every emitted entry and lazy chunk.
+    manifest: true,
   },
   test: {
     environment: "jsdom",

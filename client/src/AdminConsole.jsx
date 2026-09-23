@@ -847,7 +847,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {`${organizationSettings.organizationName} now uses a maintained Vite build and Vitest test pipeline with a substantially smaller dependency tree. Next we can split the map and administration bundles and add deployment smoke tests.`}
+            {`${organizationSettings.organizationName} now loads the case registry and administration workspace on demand, and Render verifies the production artifact before publishing it. Next we can add browser-level end-to-end checks for the highest-risk staff workflows.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>

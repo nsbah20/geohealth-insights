@@ -30,7 +30,7 @@ services:
     name: geohealth-insights
     runtime: static
     rootDir: client
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run build:verify
     staticPublishPath: build
     routes:
       - type: rewrite

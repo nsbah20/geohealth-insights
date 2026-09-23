@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -36,8 +36,6 @@ import PrintIcon from "@mui/icons-material/Print";
 import ZoomOutMapIcon from "@mui/icons-material/ZoomOutMap";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import AddCaseForm from "./AddCaseForm";
-import CasesTable from "./CasesTable";
-import AdminConsole from "./AdminConsole";
 import demoData from "./demoData";
 import { authHeaders, clearAdminToken, formatSessionTimeRemaining, getAdminToken, isSessionExpiringSoon, isSessionExpired } from "./auth";
 import { OrganizationSettingsProvider, useOrganizationSettings } from "./OrganizationSettingsContext";
@@ -52,6 +50,9 @@ const STATUS_OPTIONS = ["New", "Under Review", "Confirmed", "Rejected", "Closed"
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 const AGE_GROUP_OPTIONS = ["Unknown", "0-4", "5-17", "18-49", "50-64", "65+"];
 const SEX_OPTIONS = ["Unknown", "Female", "Male", "Other"];
+
+const CasesTable = lazy(() => import("./CasesTable"));
+const AdminConsole = lazy(() => import("./AdminConsole"));
 
 function getSeverity(count, settings) {
   const lowMax = Number(settings?.lowPriorityMaxCases) || 19;
@@ -1481,16 +1482,35 @@ function NavBar() {
   );
 }
 
+function RouteLoading() {
+  return (
+    <Box
+      role="status"
+      aria-live="polite"
+      sx={{ minHeight: "calc(100vh - 72px)", display: "grid", placeItems: "center", bgcolor: "#edf4f2" }}
+    >
+      <Stack alignItems="center" spacing={1.5}>
+        <CircularProgress size={34} sx={{ color: "#0f766e" }} />
+        <Typography fontWeight={800} color="text.secondary">
+          Loading secure workspace...
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
       <OrganizationSettingsProvider>
         <NavBar />
-        <Routes>
-          <Route path="/" element={<MapView />} />
-          <Route path="/cases" element={<CasesTable />} />
-          <Route path="/admin" element={<AdminConsole />} />
-        </Routes>
+        <Suspense fallback={<RouteLoading />}>
+          <Routes>
+            <Route path="/" element={<MapView />} />
+            <Route path="/cases" element={<CasesTable />} />
+            <Route path="/admin" element={<AdminConsole />} />
+          </Routes>
+        </Suspense>
       </OrganizationSettingsProvider>
     </BrowserRouter>
   );

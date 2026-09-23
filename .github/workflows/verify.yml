@@ -1,0 +1,45 @@
+name: Verify application
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: client
+
+      - name: Test client
+        run: npm test
+        working-directory: client
+
+      - name: Build and inspect production artifact
+        run: npm run build:verify
+        working-directory: client
+        env:
+          VITE_API_URL: https://api.example.invalid
+          VITE_MAPBOX_TOKEN: pk.test
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Validate server entry point
+        run: node --check server.js
+        working-directory: server

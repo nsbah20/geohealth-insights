@@ -28,7 +28,10 @@
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
+    "build:verify": "npm run build && npm run smoke:build",
     "preview": "vite preview",
+    "smoke:build": "node scripts/smoke-build.mjs",
+    "smoke:production": "node scripts/smoke-production.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   }
