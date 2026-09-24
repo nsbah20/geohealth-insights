@@ -51,3 +51,7 @@ jobs:
       - name: Validate server entry point
         run: node --check server.js
         working-directory: server
+
+      - name: Test deployment environment safeguards
+        run: npm test
+        working-directory: server

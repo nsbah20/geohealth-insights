@@ -6,11 +6,15 @@ const rateLimit = require("express-rate-limit");
 const { body, validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const { assertSafeDatabaseTarget, resolveAppEnvironment } = require("./deploymentEnvironment");
 
 const app = express();
 // Render terminates public traffic at its proxy before forwarding it here.
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
+const APP_ENV = resolveAppEnvironment();
+const MONGODB_URI = process.env.MONGODB_URI;
+assertSafeDatabaseTarget({ appEnvironment: APP_ENV, connectionString: MONGODB_URI });
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:3000";
 const allowedOrigins = CLIENT_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
 const CASE_STATUSES = ["New", "Under Review", "Confirmed", "Rejected", "Closed"];
@@ -280,7 +284,7 @@ function locationMatchesJurisdiction(location = "", jurisdiction = "") {
 
 // ── MongoDB connection ───────────────────────────────────────────────────────
 mongoose
-  .connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 20000 })
+  .connect(MONGODB_URI, { serverSelectionTimeoutMS: 20000 })
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);
@@ -2493,7 +2497,7 @@ async function checkDatabaseReadiness() {
 }
 
 app.get("/api/health/live", (req, res) => {
-  res.json({ status: "live", checkedAt: new Date().toISOString() });
+  res.json({ status: "live", environment: APP_ENV, checkedAt: new Date().toISOString() });
 });
 
 app.get("/api/health/ready", async (req, res) => {
@@ -2501,6 +2505,7 @@ app.get("/api/health/ready", async (req, res) => {
   const ready = database.status === "ready";
   res.status(ready ? 200 : 503).json({
     status: ready ? "ready" : "degraded",
+    environment: APP_ENV,
     checkedAt: new Date().toISOString(),
     checks: {
       api: { status: "ready" },
@@ -2517,7 +2522,8 @@ app.get("/api/admin/operations/status", requireAdminSession, async (req, res) =>
     checkedAt: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
     runtime: {
-      environment: process.env.NODE_ENV || "development",
+      environment: APP_ENV,
+      nodeEnvironment: process.env.NODE_ENV || "development",
       nodeVersion: process.version,
     },
     database,

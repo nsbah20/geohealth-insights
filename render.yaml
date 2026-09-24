@@ -10,6 +10,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: APP_ENV
+        value: production
       - key: PORT
         value: 5000
       - key: MONGODB_URI
@@ -41,3 +43,50 @@ services:
         sync: false   # Set this in the Render dashboard
       - key: VITE_API_URL
         sync: false   # Set to your geohealth-api URL, e.g. https://geohealth-api.onrender.com
+
+  # ── Staging API (isolated MongoDB database) ───────────────────────────────
+  - type: web
+    name: geohealth-api-staging
+    runtime: node
+    rootDir: server
+    branch: staging
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_ENV
+        value: staging
+      - key: PORT
+        value: 5000
+      - key: MONGODB_URI
+        sync: false   # Must end with a distinct database name containing "staging"
+      - key: CLIENT_ORIGIN
+        sync: false   # Set to the staging static-site URL
+      - key: PUBLIC_APP_URL
+        sync: false   # Set to the staging static-site URL
+      - key: ADMIN_ACCESS_CODE
+        sync: false   # Use a staging-only code
+      - key: SESSION_SECRET
+        generateValue: true
+
+  # ── Staging frontend ──────────────────────────────────────────────────────
+  - type: web
+    name: geohealth-insights-staging
+    runtime: static
+    rootDir: client
+    branch: staging
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci && npm run build:verify
+    staticPublishPath: build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_MAPBOX_TOKEN
+        sync: false
+      - key: VITE_API_URL
+        sync: false   # Set to the geohealth-api-staging URL
