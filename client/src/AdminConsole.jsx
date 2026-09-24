@@ -276,24 +276,44 @@ export default function AdminConsole() {
 
   useEffect(() => {
     let active = true;
+    let retryTimer;
+    const retryDelays = [3000, 7000, 15000];
 
-    Promise.all([
-      axios.get(`${API_URL}/api/health/ready`),
-      axios.get(`${API_URL}/api/health-data`),
-    ])
-      .then(([, casesResponse]) => {
-        if (!active) return;
-        setApiHealth({ status: "Online", color: "success" });
-        setCaseCount(casesResponse.data.length);
-      })
-      .catch(() => {
-        if (!active) return;
-        setApiHealth({ status: "Needs attention", color: "error" });
-        setCaseCount(null);
-      });
+    const loadOverview = async (attempt = 0) => {
+      const [healthResult, casesResult] = await Promise.allSettled([
+        axios.get(`${API_URL}/api/health/ready`),
+        axios.get(`${API_URL}/api/health-data`),
+      ]);
+      if (!active) return;
+
+      const healthOnline =
+        healthResult.status === "fulfilled" &&
+        healthResult.value.data?.status === "ready";
+      setApiHealth(
+        healthOnline
+          ? { status: "Online", color: "success" }
+          : { status: "Needs attention", color: "error" }
+      );
+
+      const cases = casesResult.status === "fulfilled" ? casesResult.value.data : null;
+      setCaseCount(Array.isArray(cases) ? cases.length : null);
+
+      const shouldRetry = !healthOnline || !Array.isArray(cases);
+      if (shouldRetry && attempt < retryDelays.length) {
+        retryTimer = window.setTimeout(
+          () => loadOverview(attempt + 1),
+          retryDelays[attempt]
+        );
+      }
+    };
+
+    loadOverview();
+    const refreshInterval = window.setInterval(() => loadOverview(), 60000);
 
     return () => {
       active = false;
+      window.clearTimeout(retryTimer);
+      window.clearInterval(refreshInterval);
     };
   }, []);
 
