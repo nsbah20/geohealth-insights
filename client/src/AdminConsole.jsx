@@ -929,7 +929,7 @@ export default function AdminConsole() {
 
         <AdminPanel title="Next Build Queue" icon={<RuleIcon />}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {`${organizationSettings.organizationName} now verifies public navigation, protected registry access, and staff sign-in controls in a real browser on every code change. Next we can add a dedicated test environment for authenticated case submission and review workflows.`}
+            {`${organizationSettings.organizationName} now tests authenticated case submission and review in an isolated in-memory browser environment, with no production database writes. Next we can add a separate staging API and database for backend integration and migration checks.`}
           </Alert>
           <Divider sx={{ mb: 2 }} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
